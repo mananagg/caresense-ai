@@ -361,7 +361,7 @@ function LoadingOverlay() {
   useEffect(() => {
     const id = setInterval(() => {
       setMsgIndex((i) => (i + 1) % LOADING_MESSAGES.length);
-    }, 1500);
+    }, 1800);
     return () => clearInterval(id);
   }, []);
 
@@ -372,21 +372,43 @@ function LoadingOverlay() {
       exit={{ opacity: 0, scale: 0.95 }}
       className="flex flex-col items-center justify-center py-16 gap-6"
     >
-      <div className="relative flex items-center justify-center">
-        <div
-          className="aura-ring absolute w-20 h-20 rounded-full"
-          style={{ background: "rgba(30, 64, 175, 0.15)" }}
-        />
-        <div
-          className="aura-ring absolute w-20 h-20 rounded-full"
-          style={{ background: "rgba(5, 150, 105, 0.1)", animationDelay: "0.5s" }}
-        />
-        <div
-          className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"
-          style={{ background: "linear-gradient(135deg, #1E40AF, #059669)" }}
-        >
-          <Heart className="w-8 h-8 text-white heart-pulse" />
+      <div className="flex flex-col items-center gap-4">
+        <div className="relative flex items-center justify-center">
+          <div
+            className="aura-ring absolute w-20 h-20 rounded-full"
+            style={{ background: "rgba(30, 64, 175, 0.15)" }}
+          />
+          <div
+            className="aura-ring absolute w-20 h-20 rounded-full"
+            style={{ background: "rgba(5, 150, 105, 0.1)", animationDelay: "0.5s" }}
+          />
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg"
+            style={{ background: "linear-gradient(135deg, #1E40AF, #059669)" }}
+          >
+            <Heart className="w-8 h-8 text-white heart-pulse" />
+          </div>
         </div>
+        {/* EKG line */}
+        <svg viewBox="0 0 120 30" width="120" height="30" className="overflow-visible">
+          <defs>
+            <linearGradient id="ekgGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#1E40AF" stopOpacity="0" />
+              <stop offset="30%" stopColor="#1E40AF" />
+              <stop offset="70%" stopColor="#059669" />
+              <stop offset="100%" stopColor="#059669" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          <polyline
+            points="0,15 20,15 30,15 38,3 44,27 50,3 56,27 62,15 80,15 120,15"
+            fill="none"
+            stroke="url(#ekgGrad)"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            className="ekg-line"
+          />
+        </svg>
       </div>
       <div className="text-center">
         <AnimatePresence mode="wait">
@@ -706,6 +728,14 @@ export default function CareSensePage() {
   const [modal, setModal] = useState<{ title: string; body: string } | null>(null);
 
   const resultsRef = useRef<HTMLDivElement>(null);
+  const [scrolled, setScrolled] = useState(false);
+  const [cardFocused, setCardFocused] = useState(false);
+
+  useEffect(() => {
+    function onScroll() { setScrolled(window.scrollY > 10); }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   // ── Navigation & modal handlers ────────────────────────────────────────────
 
@@ -740,6 +770,10 @@ export default function CareSensePage() {
       if (prev.toLowerCase().includes(chip.toLowerCase())) return prev;
       return prev ? `${prev}, ${chip.toLowerCase()}` : chip.toLowerCase();
     });
+  }
+
+  function isChipActive(chip: string) {
+    return symptom.toLowerCase().includes(chip.toLowerCase());
   }
 
   function handleSymptomTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -975,7 +1009,11 @@ export default function CareSensePage() {
 
       {/* ── Navbar ── */}
       <nav
-        className={`sticky z-40 w-full border-b border-slate-100 bg-white/80 backdrop-blur-md ${isEmergency ? "top-9" : "top-0"}`}
+        className={`sticky z-40 w-full transition-all duration-300 ${isEmergency ? "top-9" : "top-0"}`}
+        style={{
+          background: "#ffffff",
+          borderBottom: scrolled ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent",
+        }}
       >
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
           <button
@@ -1011,7 +1049,18 @@ export default function CareSensePage() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           className="text-center pt-4 pb-2 relative"
+          style={{
+            backgroundImage: "radial-gradient(circle, #CBD5E1 1px, transparent 1px)",
+            backgroundSize: "24px 24px",
+          }}
         >
+          {/* Edge fade — strong center wash, dots only visible at very edges */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: "radial-gradient(ellipse 75% 75% at 50% 50%, rgba(248,250,252,0.95) 0%, rgba(248,250,252,0.95) 40%, transparent 75%)",
+            }}
+          />
           <div
             className="float-slow pointer-events-none absolute -top-6 -right-12 w-48 h-48 rounded-full opacity-30 blur-3xl"
             style={{ background: "radial-gradient(circle, #1E40AF 0%, transparent 70%)" }}
@@ -1021,25 +1070,31 @@ export default function CareSensePage() {
             style={{ background: "radial-gradient(circle, #059669 0%, transparent 70%)" }}
           />
           <h1
-            className="text-4xl md:text-5xl leading-tight text-slate-900 mb-3"
-            style={{ fontFamily: "var(--font-fraunces)", fontWeight: 800 }}
+            className="text-4xl md:text-5xl leading-tight mb-3"
+            style={{ fontFamily: "var(--font-fraunces)", fontWeight: 800, color: "#0F172A", position: "relative", zIndex: 10 }}
           >
             Feel better,{" "}
             <em style={{ color: "#059669", fontFamily: "var(--font-fraunces)", fontWeight: 800, fontStyle: "italic" }}>
               faster
             </em>
           </h1>
-          <p className="text-base text-slate-500 max-w-md mx-auto leading-relaxed mb-6">
+          <p
+            className="text-base max-w-md mx-auto leading-relaxed mb-6"
+            style={{ color: "#475569", position: "relative", zIndex: 10 }}
+          >
             Describe your symptoms and get instant AI triage guidance — including home care, specialist recommendations, and providers near you.
           </p>
-          <div className="flex items-center justify-center flex-wrap gap-2 mb-2">
+          <div
+            className="flex items-center justify-center flex-wrap gap-2 mb-2"
+            style={{ position: "relative", zIndex: 10 }}
+          >
             {[
-              { icon: Shield, text: "Private & secure" },
-              { icon: Zap, text: "Results in seconds" },
-              { icon: MapPin, text: "Real providers nearby" },
-            ].map(({ icon: Icon, text }) => (
-              <span key={text} className="inline-flex items-center gap-1.5 text-xs font-medium bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-full shadow-sm">
-                <Icon className="w-3 h-3 text-blue-600" />
+              { icon: Shield, text: "Private & secure", floatClass: "pill-float-a" },
+              { icon: Zap, text: "Results in seconds", floatClass: "pill-float-b" },
+              { icon: MapPin, text: "Real providers nearby", floatClass: "pill-float-c" },
+            ].map(({ icon: Icon, text, floatClass }) => (
+              <span key={text} style={{ color: "#475569" }} className={`inline-flex items-center gap-1.5 text-xs font-medium bg-white border border-slate-200 px-3 py-1.5 rounded-full shadow-sm ${floatClass}`}>
+                <Icon className="w-3 h-3" style={{ color: "#1E40AF" }} />
                 {text}
               </span>
             ))}
@@ -1049,8 +1104,16 @@ export default function CareSensePage() {
         {/* ── Form card ── */}
         <FadeUp delay={0.1}>
           <div
-            className="relative rounded-2xl shadow-xl"
-            style={{ background: "linear-gradient(135deg, #1E40AF22 0%, #05966922 100%)", padding: "2px" }}
+            className="relative rounded-2xl transition-shadow duration-300"
+            style={{
+              background: "linear-gradient(135deg, #1E40AF22 0%, #05966922 100%)",
+              padding: "2px",
+              boxShadow: cardFocused
+                ? "0 20px 60px rgba(0,0,0,0.08), 0 0 0 4px rgba(30,64,175,0.09)"
+                : "0 20px 60px rgba(0,0,0,0.06)",
+            }}
+            onFocus={() => setCardFocused(true)}
+            onBlur={() => setCardFocused(false)}
           >
             <div className="bg-white rounded-2xl overflow-hidden">
               <div className="h-1 w-full" style={{ background: "linear-gradient(to right, #1E40AF, #059669)" }} />
@@ -1149,8 +1212,13 @@ export default function CareSensePage() {
                         key={chip}
                         type="button"
                         onClick={() => handleSymptomChipClick(chip)}
-                        className="text-xs px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-all"
+                        className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-all hover:scale-105 ${
+                          isChipActive(chip)
+                            ? "bg-blue-50 border-blue-300 text-blue-700 shadow-sm"
+                            : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-sm hover:shadow-emerald-100/50"
+                        }`}
                       >
+                        {isChipActive(chip) && <Check className="w-3 h-3 flex-shrink-0" />}
                         {chip}
                       </button>
                     ))}
@@ -1268,7 +1336,7 @@ export default function CareSensePage() {
                   type="button"
                   onClick={handleGetGuidance}
                   disabled={!isFormValid || triageLoading}
-                  className="btn-gradient-pulse w-full py-3.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.99] shadow-md"
+                  className="shimmer-btn btn-gradient-pulse w-full py-3.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-95 active:scale-[0.98] shadow-md"
                   style={{ background: "linear-gradient(to right, #1E40AF, #059669)" }}
                 >
                   {triageLoading ? (
@@ -1384,10 +1452,19 @@ export default function CareSensePage() {
                 </h3>
                 <div className="space-y-2">
                   {(triage.warning_signs ?? []).map((sign, i) => (
-                    <div key={i} className="flex items-start gap-3 bg-red-50/80 rounded-xl p-3.5 border border-red-100">
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -6 }}
+                      animate={{ opacity: 1, x: [0, -4, 4, -3, 3, 0] }}
+                      transition={{
+                        opacity: { delay: i * 0.08, duration: 0.25 },
+                        x: { delay: i * 0.08 + 0.35, duration: 0.45, type: "tween" },
+                      }}
+                      className="flex items-start gap-3 bg-red-50/80 rounded-xl p-3.5 border border-red-100"
+                    >
                       <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-red-700">{sign}</p>
-                    </div>
+                    </motion.div>
                   ))}
                 </div>
               </div>
@@ -1611,8 +1688,15 @@ export default function CareSensePage() {
                 { icon: Search, step: "1", color: "#1E40AF", bg: "linear-gradient(135deg, #EFF6FF, #DBEAFE)", title: "Describe Your Symptoms", desc: "Tell us how you're feeling. No medical jargon needed." },
                 { icon: Zap, step: "2", color: "#059669", bg: "linear-gradient(135deg, #ECFDF5, #D1FAE5)", title: "Get Instant Guidance", desc: "AI triages your symptoms and tells you what to do next." },
                 { icon: MapPin, step: "3", color: "#7C3AED", bg: "linear-gradient(135deg, #F5F3FF, #EDE9FE)", title: "Find Care Near You", desc: "See the right providers nearby for your situation." },
-              ].map(({ icon: Icon, step, color, bg, title, desc }) => (
-                <div key={step} className="flex flex-col items-center text-center relative z-10">
+              ].map(({ icon: Icon, step, color, bg, title, desc }, i) => (
+                <motion.div
+                  key={step}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: i * 0.12, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex flex-col items-center text-center relative z-10"
+                >
                   <div className="relative mb-4">
                     <div className="w-12 h-12 rounded-2xl flex items-center justify-center shadow-sm" style={{ background: bg }}>
                       <Icon className="w-5 h-5" style={{ color }} />
@@ -1626,7 +1710,7 @@ export default function CareSensePage() {
                   </div>
                   <p className="text-sm font-semibold text-slate-900 mb-1.5">{title}</p>
                   <p className="text-xs text-slate-400 leading-relaxed">{desc}</p>
-                </div>
+                </motion.div>
               ))}
             </div>
 
@@ -1643,27 +1727,42 @@ export default function CareSensePage() {
         </FadeUp>
 
         {/* ── Trust section ── */}
-        <FadeUp delay={0.3}>
-          <div id="features" className="grid grid-cols-3 gap-3">
-            {[
-              { icon: Shield, color: "#1E40AF", bg: "#EFF6FF", title: "Private & Secure", desc: "We never store your health information", stat: "HIPAA-aware design" },
-              { icon: Zap, color: "#059669", bg: "#ECFDF5", title: "Instant Guidance", desc: "AI-powered triage in under 30 seconds", stat: "< 10s average" },
-              { icon: MapPin, color: "#7C3AED", bg: "#F5F3FF", title: "Real Providers", desc: "Live data from verified healthcare facilities", stat: "Powered by Google" },
-            ].map(({ icon: Icon, color, bg, title, desc, stat }) => (
-              <div
-                key={title}
-                className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4 text-center hover:-translate-y-1 hover:shadow-md transition-all duration-200 cursor-default"
+        <div id="features" className="grid grid-cols-3 gap-3">
+          {[
+            { icon: Shield, color: "#1E40AF", bg: "#EFF6FF", glow: "rgba(30,64,175,0.22)", title: "Private & Secure", desc: "We never store your health information", stat: "HIPAA-aware design" },
+            { icon: Zap, color: "#059669", bg: "#ECFDF5", glow: "rgba(5,150,105,0.22)", title: "Instant Guidance", desc: "AI-powered triage in under 30 seconds", stat: "< 10s average" },
+            { icon: MapPin, color: "#7C3AED", bg: "#F5F3FF", glow: "rgba(124,58,237,0.22)", title: "Real Providers", desc: "Live data from verified healthcare facilities", stat: "Powered by Google" },
+          ].map(({ icon: Icon, color, bg, glow, title, desc, stat }, i) => (
+            <motion.div
+              key={title}
+              initial={{ opacity: 0, y: 24 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: "-40px" }}
+              transition={{ duration: 0.5, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] }}
+              className="p-px rounded-2xl"
+              style={{ background: "linear-gradient(135deg, rgba(219,234,254,0.9), rgba(209,250,229,0.9))" }}
+            >
+              <motion.div
+                whileHover={{ y: -4 }}
+                transition={{ type: "spring", stiffness: 400, damping: 25 }}
+                className="bg-white rounded-2xl p-4 text-center cursor-default h-full"
+                style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}
               >
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3" style={{ background: bg }}>
+                <motion.div
+                  whileHover={{ boxShadow: `0 0 20px ${glow}` }}
+                  transition={{ duration: 0.2 }}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3"
+                  style={{ background: bg }}
+                >
                   <Icon className="w-5 h-5" style={{ color }} />
-                </div>
+                </motion.div>
                 <p className="text-xs font-semibold text-slate-800 mb-1">{title}</p>
                 <p className="text-xs text-slate-400 leading-relaxed mb-2">{desc}</p>
                 <p className="text-[10px] font-medium" style={{ color }}>{stat}</p>
-              </div>
-            ))}
-          </div>
-        </FadeUp>
+              </motion.div>
+            </motion.div>
+          ))}
+        </div>
 
         {/* ── Footer ── */}
         <footer className="pt-8 pb-4 border-t border-slate-100">

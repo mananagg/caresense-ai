@@ -80,3 +80,53 @@ body {
 .float-medium {
   animation: float-medium 5s ease-in-out infinite;
 }
+
+/* Trust pill subtle float */
+@keyframes pill-float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-5px); }
+}
+
+.pill-float-a { animation: pill-float 3.5s ease-in-out infinite; }
+.pill-float-b { animation: pill-float 3.5s ease-in-out infinite 0.6s; }
+.pill-float-c { animation: pill-float 3.5s ease-in-out infinite 1.2s; }
+
+/* Shimmer sweep on submit button */
+@keyframes shimmer-sweep {
+  0%   { left: -100%; }
+  100% { left: 150%; }
+}
+
+.shimmer-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.shimmer-btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 55%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.28), transparent);
+  transform: skewX(-15deg);
+  pointer-events: none;
+}
+
+.shimmer-btn:hover:not(:disabled)::after {
+  animation: shimmer-sweep 0.75s ease-out forwards;
+}
+
+/* EKG / heartbeat line for loading overlay */
+@keyframes ekg-draw {
+  0%   { stroke-dashoffset: 400; opacity: 0; }
+  10%  { opacity: 1; }
+  75%  { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: -400; opacity: 0; }
+}
+
+.ekg-line {
+  stroke-dasharray: 400;
+  animation: ekg-draw 1.5s ease-in-out infinite;
+}
