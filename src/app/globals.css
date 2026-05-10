@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+  --primary: #1E40AF;
+  --accent: #059669;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+/* Heart pulse for loading state */
+@keyframes heart-pulse {
+  0%, 100% { transform: scale(1); }
+  14% { transform: scale(1.15); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.08); }
+  70% { transform: scale(1); }
+}
+
+.heart-pulse {
+  animation: heart-pulse 1.2s ease-in-out infinite;
+}
+
+/* Aura ring pulse */
+@keyframes aura-pulse {
+  0% { transform: scale(0.95); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.aura-ring {
+  animation: aura-pulse 1.5s ease-out infinite;
+}
+
+/* Gradient submit button pulse on hover */
+@keyframes btn-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(30, 64, 175, 0.35); }
+  70%  { box-shadow: 0 0 0 10px rgba(30, 64, 175, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(30, 64, 175, 0); }
+}
+
+.btn-gradient-pulse:hover:not(:disabled) {
+  animation: btn-pulse 1.4s ease-out infinite;
+}
+
+/* Severity pulse for high/emergency badges */
+@keyframes severity-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+}
+
+.severity-pulse {
+  animation: severity-pulse 1.5s ease-out infinite;
+}
+
+/* Float animation for hero blobs */
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  33% { transform: translateY(-18px) rotate(2deg); }
+  66% { transform: translateY(-8px) rotate(-1deg); }
+}
+
+.float-slow {
+  animation: float-slow 8s ease-in-out infinite;
+}
+
+@keyframes float-medium {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(3deg); }
+}
+
+.float-medium {
+  animation: float-medium 5s ease-in-out infinite;
+}

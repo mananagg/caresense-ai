@@ -1,0 +1,102 @@
+import { NextRequest, NextResponse } from "next/server";
+import Groq from "groq-sdk";
+
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
+
+function extractJson(text: string): Record<string, string | null> {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const match = text.match(/\{[\s\S]*?\}/);
+    if (match) return JSON.parse(match[0]);
+    throw new Error("No JSON in model response");
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const formData = await req.formData();
+    const file = formData.get("file");
+
+    if (!file || !(file instanceof File)) {
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    if (file.size > MAX_BYTES) {
+      return NextResponse.json(
+        { error: "File too large. Maximum size is 10 MB." },
+        { status: 413 }
+      );
+    }
+
+    if (file.type === "application/pdf") {
+      return NextResponse.json(
+        {
+          error:
+            "PDF files cannot be processed. Please take a photo or screenshot of your insurance card and upload that instead.",
+        },
+        { status: 415 }
+      );
+    }
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      return NextResponse.json(
+        { error: "Unsupported file type. Please upload a JPG or PNG image." },
+        { status: 415 }
+      );
+    }
+
+    const buffer = await file.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    const dataUrl = `data:${file.type};base64,${base64}`;
+
+    const completion = await groq.chat.completions.create({
+      model: "llama-3.2-11b-vision-preview",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image_url",
+              image_url: { url: dataUrl },
+            },
+            {
+              type: "text",
+              text: `This is a health insurance card or document. Extract ONLY:
+1. Insurance provider/company name (e.g. "Kaiser Permanente", "Aetna", "UnitedHealthcare", "Cigna", "Humana", "Anthem", "Blue Cross Blue Shield", "Medicaid", "Medicare")
+2. Plan type — must be exactly one of: HMO, PPO, EPO, HDHP, POS (or null if not visible)
+
+Return ONLY a JSON object with no explanation, no markdown:
+{"insurance_provider": "name or null", "plan_type": "HMO|PPO|EPO|HDHP|POS or null"}`,
+            },
+          ],
+        },
+      ] as Parameters<typeof groq.chat.completions.create>[0]["messages"],
+      max_tokens: 150,
+      temperature: 0.1,
+    });
+
+    const content = completion.choices[0]?.message?.content ?? "";
+
+    let extracted: Record<string, string | null>;
+    try {
+      extracted = extractJson(content);
+    } catch {
+      return NextResponse.json(
+        { error: "Could not read insurance details from this image. Try a clearer photo." },
+        { status: 422 }
+      );
+    }
+
+    return NextResponse.json({
+      insurance_provider: extracted.insurance_provider ?? null,
+      plan_type: extracted.plan_type ?? null,
+    });
+  } catch (err) {
+    console.error("extract-insurance error:", err);
+    return NextResponse.json({ error: "Failed to process document" }, { status: 500 });
+  }
+}
