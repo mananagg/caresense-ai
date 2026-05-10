@@ -166,8 +166,12 @@ export async function POST(req: NextRequest) {
   const maxResults = urg === "emergency" ? 3 : 5;
 
   // ── Build search payload ─────────────────────────────────────────────────
+  const insurancePrefix = insurance_provider && typeof insurance_provider === "string" && insurance_provider.trim()
+    ? `${insurance_provider.trim()} `
+    : "";
+
   const searchPayload = {
-    textQuery: `${specialist_needed.trim()} near ${lat},${lng}`,
+    textQuery: `${insurancePrefix}${specialist_needed.trim()} near ${lat},${lng}`,
     maxResultCount: maxResults,
     locationBias: {
       circle: {
