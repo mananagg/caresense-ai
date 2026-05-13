@@ -1,6 +1,57 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Use server-only env var (no NEXT_PUBLIC_ prefix) so the key is never bundled client-side.
+// Add GOOGLE_PLACES_API_KEY to .env.local alongside NEXT_PUBLIC_GOOGLE_PLACES_API_KEY.
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
+
+// ── Security ─────────────────────────────────────────────────────────────────
+
+const SEC_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+} as const;
+
+function secureJson(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: { ...((init as Record<string, string> | undefined) ?? {}), ...SEC_HEADERS },
+  });
+}
+
+function sanitize(value: string): string {
+  return value.replace(/<[^>]*>/g, "").trim();
+}
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
+interface OpenPeriodPoint {
+  day: number;
+  hour?: number;
+  minute?: number;
+  time?: string; // legacy "HHMM" fallback
+}
+
+interface OpenPeriod {
+  open: OpenPeriodPoint;
+  close?: OpenPeriodPoint;
+}
+
+interface RegularOpeningHours {
+  openNow?: boolean;
+  periods?: OpenPeriod[];
+}
 
 interface NewPlaceResult {
   id: string;
@@ -11,7 +62,7 @@ interface NewPlaceResult {
   nationalPhoneNumber?: string;
   websiteUri?: string;
   googleMapsUri?: string;
-  regularOpeningHours?: { openNow?: boolean };
+  regularOpeningHours?: RegularOpeningHours;
   photos?: Array<{ name: string }>;
   primaryTypeDisplayName?: { text: string };
   location?: { latitude: number; longitude: number };
@@ -79,11 +130,93 @@ function matchesInsurance(providerName: string, insuranceProvider: string): bool
   return keywords.some((kw) => name.includes(kw));
 }
 
+// ── Hours helpers ────────────────────────────────────────────────────────────
+
+function formatHoursTime(point: OpenPeriodPoint): string {
+  let hour: number;
+  let minute: number;
+  if (point.hour !== undefined) {
+    hour = point.hour;
+    minute = point.minute ?? 0;
+  } else if (point.time) {
+    hour = parseInt(point.time.slice(0, 2), 10);
+    minute = parseInt(point.time.slice(2, 4), 10);
+  } else {
+    return "";
+  }
+  const period = hour >= 12 ? "PM" : "AM";
+  const displayHour = hour % 12 || 12;
+  const displayMinute = minute > 0 ? `:${minute.toString().padStart(2, "0")}` : "";
+  return `${displayHour}${displayMinute} ${period}`;
+}
+
+function getTodayHours(hours: RegularOpeningHours | undefined): string | null {
+  if (!hours?.periods?.length) return null;
+  const today = new Date().getDay(); // 0=Sunday … 6=Saturday
+  // A single period covering the whole week (24/7) has open.day === 0 and no close
+  if (hours.periods.length === 1 && !hours.periods[0].close) return "Open 24 hours";
+  const period = hours.periods.find((p) => p.open.day === today);
+  if (!period) return "Closed today";
+  if (!period.close) return "Open 24 hours";
+  return `Today: ${formatHoursTime(period.open)} – ${formatHoursTime(period.close)}`;
+}
+
+function getNextOpenTime(hours: RegularOpeningHours | undefined, currentDay: number): string | null {
+  if (!hours?.periods?.length) return null;
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  for (let i = 1; i <= 7; i++) {
+    const nextDay = (currentDay + i) % 7;
+    const period = hours.periods.find((p) => p.open.day === nextDay);
+    if (period) {
+      const label = i === 1 ? "Tomorrow" : DAY_NAMES[nextDay];
+      return `${label} at ${formatHoursTime(period.open)}`;
+    }
+  }
+  return null;
+}
+
+// ── Scoring helpers ───────────────────────────────────────────────────────────
+
+function minMaxNorm(value: number, min: number, max: number): number {
+  if (max === min) return 0.5;
+  return Math.max(0, Math.min(1, (value - min) / (max - min)));
+}
+
+function minutesUntilClosingNow(hours: RegularOpeningHours | undefined): number | null {
+  if (!hours?.periods?.length) return null;
+  const now = new Date();
+  const today = now.getDay();
+  const period = hours.periods.find((p) => p.open.day === today);
+  if (!period?.close) return null;
+  let hour: number;
+  let minute: number;
+  if (period.close.hour !== undefined) {
+    hour = period.close.hour;
+    minute = period.close.minute ?? 0;
+  } else if (period.close.time) {
+    hour = parseInt(period.close.time.slice(0, 2), 10);
+    minute = parseInt(period.close.time.slice(2, 4), 10);
+  } else {
+    return null;
+  }
+  const close = new Date();
+  close.setHours(hour, minute, 0, 0);
+  const diff = Math.floor((close.getTime() - now.getTime()) / 60_000);
+  return diff >= 0 && diff <= 60 ? diff : null;
+}
+
+function availabilityScore(openNow: boolean | null, minsUntilClose: number | null): number {
+  if (openNow === null) return 0.5;   // unknown hours → neutral
+  if (openNow === false) return 0.0;  // closed
+  if (minsUntilClose === null) return 1.0; // open and not closing soon
+  return 0.5 + (minsUntilClose / 60) * 0.4; // grades 0.5–0.9 based on time left
+}
+
+// ── Places API ───────────────────────────────────────────────────────────────
+
 async function callPlacesAPI(
   payload: Record<string, unknown>
 ): Promise<{ places?: NewPlaceResult[] } | null> {
-  console.log("[providers] request body:", JSON.stringify(payload, null, 2));
-
   try {
     const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
       method: "POST",
@@ -95,34 +228,30 @@ async function callPlacesAPI(
       body: JSON.stringify(payload),
     });
 
-    const rawBody = await res.text();
-    console.log("[providers] response status:", res.status);
-    console.log("[providers] response body:", rawBody);
-
     if (!res.ok) {
-      console.error("[providers] Places API error:", {
-        status: res.status,
-        statusText: res.statusText,
-        responseBody: rawBody,
-        requestPayload: payload,
-      });
+      console.error("[providers] Places API returned non-OK status:", res.status);
       return null;
     }
 
-    return JSON.parse(rawBody);
-  } catch (err) {
-    console.error("[providers] fetch threw:", err);
+    return await res.json();
+  } catch {
+    console.error("[providers] Places API fetch failed");
     return null;
   }
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  if (!checkRateLimit(ip)) {
+    return secureJson({ error: "Too many requests" }, { status: 429 });
+  }
+
   // ── Parse body ──────────────────────────────────────────────────────────
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json(
+    return secureJson(
       { ...GRACEFUL_ERROR, error: "invalid_request", message: "Invalid request body" },
       { status: 400 }
     );
@@ -130,31 +259,35 @@ export async function POST(req: NextRequest) {
 
   const { specialist_needed, urgency = "routine", location, insurance_provider } = body;
 
-  // ── Input validation ─────────────────────────────────────────────────────
+  // ── Input validation & sanitization ──────────────────────────────────────
   if (!specialist_needed || typeof specialist_needed !== "string" || !specialist_needed.trim()) {
-    return NextResponse.json(
+    return secureJson(
       { ...GRACEFUL_ERROR, error: "invalid_request", message: "specialist_needed is required" },
       { status: 400 }
     );
   }
 
+  const cleanSpecialist = sanitize(specialist_needed);
+  const cleanInsurance =
+    typeof insurance_provider === "string" ? sanitize(insurance_provider) : "";
+
   const lat = Number((location as Record<string, unknown>)?.lat);
   const lng = Number((location as Record<string, unknown>)?.lng);
 
   if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lng) || lng < -180 || lng > 180) {
-    return NextResponse.json(
+    return secureJson(
       {
         ...GRACEFUL_ERROR,
         error: "invalid_request",
-        message: "Valid lat/lng coordinates are required (lat: −90–90, lng: −180–180)",
+        message: "Valid lat/lng coordinates are required (lat: -90 to 90, lng: -180 to 180)",
       },
       { status: 400 }
     );
   }
 
   if (!GOOGLE_API_KEY || GOOGLE_API_KEY === "paste_later") {
-    console.error("[providers] Google Places API key not configured");
-    return NextResponse.json(GRACEFUL_ERROR);
+    console.error("[providers] Places API key not configured");
+    return secureJson(GRACEFUL_ERROR);
   }
 
   const urg: Urgency = (["emergency", "today", "this_week", "routine"] as const).includes(
@@ -166,12 +299,10 @@ export async function POST(req: NextRequest) {
   const maxResults = urg === "emergency" ? 3 : 5;
 
   // ── Build search payload ─────────────────────────────────────────────────
-  const insurancePrefix = insurance_provider && typeof insurance_provider === "string" && insurance_provider.trim()
-    ? `${insurance_provider.trim()} `
-    : "";
+  const insurancePrefix = cleanInsurance ? `${cleanInsurance} ` : "";
 
   const searchPayload = {
-    textQuery: `${insurancePrefix}${specialist_needed.trim()} near ${lat},${lng}`,
+    textQuery: `${insurancePrefix}${cleanSpecialist} near ${lat},${lng}`,
     maxResultCount: maxResults,
     locationBias: {
       circle: {
@@ -185,12 +316,13 @@ export async function POST(req: NextRequest) {
   const searchData = await callPlacesAPI(searchPayload);
 
   if (!searchData) {
-    console.error("[providers] Places API call failed");
-    return NextResponse.json(GRACEFUL_ERROR);
+    console.error("[providers] provider search failed");
+    return secureJson(GRACEFUL_ERROR);
   }
 
   // ── Map results ──────────────────────────────────────────────────────────
   const results: NewPlaceResult[] = searchData.places ?? [];
+  const today = new Date().getDay();
 
   const providers = results.map((place) => {
     const photoUrl = place.photos?.[0]?.name
@@ -198,45 +330,98 @@ export async function POST(req: NextRequest) {
       : null;
 
     const name = place.displayName?.text ?? "Unknown";
+    const distance = place.location
+      ? haversineDistance(lat, lng, place.location.latitude, place.location.longitude)
+      : null;
+    const open_now = place.regularOpeningHours?.openNow ?? null;
+    const rating = place.rating ?? null;
+    const user_ratings_total = place.userRatingCount ?? null;
+    const today_hours = getTodayHours(place.regularOpeningHours);
+    const next_open =
+      open_now === false ? getNextOpenTime(place.regularOpeningHours, today) : null;
 
     return {
       name,
       address: place.formattedAddress ?? "",
-      rating: place.rating ?? null,
-      user_ratings_total: place.userRatingCount ?? null,
-      distance:
-        place.location
-          ? haversineDistance(lat, lng, place.location.latitude, place.location.longitude)
-          : null,
+      rating,
+      user_ratings_total,
+      distance,
       phone: place.nationalPhoneNumber ?? "",
       website: place.websiteUri ?? "",
       maps_link: place.googleMapsUri ?? `https://www.google.com/maps/place/?q=place_id:${place.id}`,
       place_id: place.id,
-      open_now: place.regularOpeningHours?.openNow ?? null,
+      open_now,
       photo_url: photoUrl,
       primary_type: place.primaryTypeDisplayName?.text ?? null,
-      insurance_match: matchesInsurance(name, String(insurance_provider ?? "")),
+      insurance_match: matchesInsurance(name, cleanInsurance),
+      today_hours,
+      next_open,
+      top_match: false, // assigned after sort
+      _minsUntilClose: minutesUntilClosingNow(place.regularOpeningHours),
     };
   });
 
-  // ── Sort ─────────────────────────────────────────────────────────────────
-  // All urgencies: sort by distance ascending when available, appending
-  // providers without distance at the end. Providers are never dropped for
-  // lacking distance data.
-  providers.sort((a, b) => {
-    const aDist = a.distance !== null ? parseFloat(a.distance) : null;
-    const bDist = b.distance !== null ? parseFloat(b.distance) : null;
-    if (aDist !== null && bDist !== null) return aDist - bDist;
-    if (aDist !== null) return -1;
-    if (bDist !== null) return 1;
-    return (b.rating ?? 0) - (a.rating ?? 0);
+  // ── Bayesian-average multi-factor scoring ────────────────────────────────
+  const C = 50; // confidence threshold: ~50 reviews anchors a Bayesian estimate
+
+  const ratedProviders = providers.filter((p) => p.rating !== null);
+  const globalMeanRating =
+    ratedProviders.length > 0
+      ? ratedProviders.reduce((sum, p) => sum + (p.rating ?? 0), 0) / ratedProviders.length
+      : 3.5;
+
+  const enriched = providers.map((p) => {
+    const count = p.user_ratings_total ?? 0;
+    const r = p.rating ?? globalMeanRating;
+    const bayesianRating = (C * globalMeanRating + r * count) / (C + count);
+    const distMiles = p.distance !== null ? parseFloat(p.distance) : null;
+    const proximityRaw = distMiles !== null ? 1 / (distMiles + 0.1) : null;
+    const trustRaw = Math.log10(count + 1);
+    return { ...p, bayesianRating, proximityRaw, trustRaw };
   });
 
-  return NextResponse.json({
-    providers: providers.slice(0, maxResults),
+  // Collect ranges for min-max normalization
+  const bayesValues = enriched.map((p) => p.bayesianRating);
+  const bayesMin = Math.min(...bayesValues);
+  const bayesMax = Math.max(...bayesValues);
+
+  const proximityValues = enriched
+    .map((p) => p.proximityRaw)
+    .filter((v): v is number => v !== null);
+  const proximityMin = proximityValues.length > 0 ? Math.min(...proximityValues) : 0;
+  const proximityMax = proximityValues.length > 0 ? Math.max(...proximityValues) : 1;
+  const sortedProx = [...proximityValues].sort((a, b) => a - b);
+  const proximityMedian = sortedProx.length > 0 ? sortedProx[Math.floor(sortedProx.length / 2)] : 0.5;
+
+  const trustValues = enriched.map((p) => p.trustRaw);
+  const trustMin = Math.min(...trustValues);
+  const trustMax = Math.max(...trustValues);
+
+  // Compute final score with weighted combination
+  const scored = enriched.map((p) => {
+    const ratingNorm   = minMaxNorm(p.bayesianRating, bayesMin, bayesMax);
+    const proximityNorm = minMaxNorm(p.proximityRaw ?? proximityMedian, proximityMin, proximityMax);
+    const trustNorm    = minMaxNorm(p.trustRaw, trustMin, trustMax);
+    const avail        = availabilityScore(p.open_now, p._minsUntilClose);
+    // Quality (0.35) + availability (0.35) + proximity (0.20) + trust (0.10)
+    const finalScore = 0.35 * ratingNorm + 0.35 * avail + 0.20 * proximityNorm + 0.10 * trustNorm;
+    return { ...p, _finalScore: finalScore };
+  });
+
+  scored.sort((a, b) => b._finalScore - a._finalScore);
+
+  // ── Mark top match and strip internal fields ─────────────────────────────
+  const finalProviders = scored.slice(0, maxResults).map((p, i) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _minsUntilClose, _finalScore, bayesianRating, proximityRaw, trustRaw, ...rest } = p;
+    return { ...rest, top_match: i === 0 };
+  });
+
+  return secureJson({
+    providers: finalProviders,
     urgency_banner: urgencyBanner(urg),
-    insurance_note: insurance_provider
-      ? `Verify that providers accept ${insurance_provider} before booking.`
+    insurance_note: cleanInsurance
+      ? `Verify that providers accept ${cleanInsurance} before booking.`
       : null,
   });
 }

@@ -3,6 +3,32 @@ import Groq from "groq-sdk";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+const SEC_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+} as const;
+
+function secureJson(body: unknown, init?: ResponseInit) {
+  return NextResponse.json(body, {
+    ...init,
+    headers: { ...((init as Record<string, string> | undefined) ?? {}), ...SEC_HEADERS },
+  });
+}
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
+}
+
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
@@ -17,23 +43,28 @@ function extractJson(text: string): Record<string, string | null> {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  if (!checkRateLimit(ip)) {
+    return secureJson({ error: "Too many requests" }, { status: 429 });
+  }
+
   try {
     const formData = await req.formData();
     const file = formData.get("file");
 
     if (!file || !(file instanceof File)) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+      return secureJson({ error: "No file provided" }, { status: 400 });
     }
 
     if (file.size > MAX_BYTES) {
-      return NextResponse.json(
+      return secureJson(
         { error: "File too large. Maximum size is 10 MB." },
         { status: 413 }
       );
     }
 
     if (file.type === "application/pdf") {
-      return NextResponse.json(
+      return secureJson(
         {
           error:
             "PDF files cannot be processed. Please take a photo or screenshot of your insurance card and upload that instead.",
@@ -43,7 +74,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (!ALLOWED_TYPES.includes(file.type)) {
-      return NextResponse.json(
+      return secureJson(
         { error: "Unsupported file type. Please upload a JPG or PNG image." },
         { status: 415 }
       );
@@ -85,18 +116,18 @@ Return ONLY a JSON object with no explanation, no markdown:
     try {
       extracted = extractJson(content);
     } catch {
-      return NextResponse.json(
+      return secureJson(
         { error: "Could not read insurance details from this image. Try a clearer photo." },
         { status: 422 }
       );
     }
 
-    return NextResponse.json({
+    return secureJson({
       insurance_provider: extracted.insurance_provider ?? null,
       plan_type: extracted.plan_type ?? null,
     });
-  } catch (err) {
-    console.error("extract-insurance error:", err);
-    return NextResponse.json({ error: "Failed to process document" }, { status: 500 });
+  } catch {
+    console.error("[extract-insurance] document processing failed");
+    return secureJson({ error: "Failed to process document" }, { status: 500 });
   }
 }

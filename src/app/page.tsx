@@ -16,6 +16,8 @@ import {
   Info,
   Loader2,
   MapPin,
+  Mic,
+  MicOff,
   Navigation,
   Phone,
   Search,
@@ -23,12 +25,12 @@ import {
   Siren,
   Star,
   Upload,
+  X,
   Zap,
 } from "lucide-react";
 
 /* ─── Constants ─────────────────────────────────────────────────────────── */
 
-const GEOCODING_KEY = process.env.NEXT_PUBLIC_GOOGLE_GEOCODING_API_KEY;
 
 const INSURANCE_PROVIDERS = [
   "Aetna",
@@ -72,15 +74,16 @@ const TERMS_MODAL = {
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 
 interface TriageResult {
+  intent: "symptom_triage" | "travel_health" | "mental_health" | "general_health" | "pharmacy_needed";
   severity: "low" | "medium" | "high";
   urgency: "emergency" | "today" | "this_week" | "routine";
   specialist_needed: string;
   should_see_doctor: boolean;
   home_care_steps: string[];
-  warning_signs: string[];
-  what_to_tell_doctor: string[];
-  pre_visit_summary: string;
-  insurance_note: string;
+  warning_signs: string[] | null;
+  what_to_tell_doctor: string[] | null;
+  pre_visit_summary: string | null;
+  insurance_note: string | null;
 }
 
 interface Provider {
@@ -97,6 +100,9 @@ interface Provider {
   photo_url: string | null;
   primary_type: string | null;
   insurance_match: boolean;
+  today_hours: string | null;
+  next_open: string | null;
+  top_match: boolean;
 }
 
 interface ProvidersResponse {
@@ -254,33 +260,28 @@ function parseSummaryLines(text: string) {
 /* ─── API Calls ──────────────────────────────────────────────────────────── */
 
 async function geocodeLocation(address: string): Promise<{ lat: number; lng: number; countryCode: string }> {
-  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-  url.searchParams.set("address", address);
-  url.searchParams.set("key", GEOCODING_KEY ?? "");
-  const res = await fetch(url.toString());
+  const res = await fetch("/api/geocode", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ address }),
+  });
   const data = await res.json();
-  if (data.status !== "OK" || !data.results?.[0]) {
-    throw new Error("Address not found. Try a city name, zip code, or full address.");
+  if (!res.ok) {
+    throw new Error(data.error ?? "Address not found. Try a city name, zip code, or full address.");
   }
-  const { lat, lng } = data.results[0].geometry.location;
-  const countryComp = data.results[0].address_components?.find(
-    (c: { types: string[]; short_name: string }) => c.types.includes("country")
-  );
-  return { lat, lng, countryCode: countryComp?.short_name ?? "" };
+  return { lat: data.lat, lng: data.lng, countryCode: data.countryCode ?? "" };
 }
 
 async function reverseGeocodeCountry(lat: number, lng: number): Promise<string> {
   try {
-    const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-    url.searchParams.set("latlng", `${lat},${lng}`);
-    url.searchParams.set("key", GEOCODING_KEY ?? "");
-    const res = await fetch(url.toString());
+    const res = await fetch("/api/geocode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lat, lng }),
+    });
+    if (!res.ok) return "";
     const data = await res.json();
-    if (data.status !== "OK" || !data.results?.[0]) return "";
-    const countryComp = data.results[0].address_components?.find(
-      (c: { types: string[]; short_name: string }) => c.types.includes("country")
-    );
-    return countryComp?.short_name ?? "";
+    return data.countryCode ?? "";
   } catch {
     return "";
   }
@@ -293,7 +294,9 @@ interface FetchTriageParams {
   location: { lat: number; lng: number } | null;
 }
 
-async function fetchTriage(params: FetchTriageParams): Promise<{ data: TriageResult | null; error: string | null }> {
+async function fetchTriage(
+  params: FetchTriageParams
+): Promise<{ data: TriageResult | null; error: string | null; notHealthRelated: boolean }> {
   const RETRY_DELAYS = [1000, 3000, 8000];
   let lastError = "Something went wrong. Please try again.";
 
@@ -313,8 +316,11 @@ async function fetchTriage(params: FetchTriageParams): Promise<{ data: TriageRes
         }),
       });
       const data = await res.json();
+      if (data.error_type === "not_health_related") {
+        return { data: null, error: null, notHealthRelated: true };
+      }
       if (res.status === 400) {
-        return { data: null, error: typeof data.error === "string" ? data.error : "Invalid request." };
+        return { data: null, error: typeof data.error === "string" ? data.error : "Invalid request.", notHealthRelated: false };
       }
       if (data.error_type === "ai_unavailable") {
         lastError = data.message ?? "AI is temporarily unavailable.";
@@ -324,13 +330,13 @@ async function fetchTriage(params: FetchTriageParams): Promise<{ data: TriageRes
         lastError = typeof data.error === "string" ? data.error : "Something went wrong.";
         continue;
       }
-      return { data: data as TriageResult, error: null };
+      return { data: data as TriageResult, error: null, notHealthRelated: false };
     } catch {
       lastError = "Connection error. Check your internet and try again.";
     }
   }
 
-  return { data: null, error: lastError };
+  return { data: null, error: lastError, notHealthRelated: false };
 }
 
 interface FetchProvidersParams {
@@ -517,21 +523,39 @@ function Dropdown({
 
 /* ─── Provider Card ──────────────────────────────────────────────────────── */
 
-function ProviderCard({ provider: p, rank }: { provider: Provider; rank: number }) {
-  const isTopRated = p.rating !== null && p.rating >= 4.5;
-  const isLowRated = p.rating !== null && p.rating < 3.5;
-  const bgClass = isTopRated ? "bg-emerald-50/40" : isLowRated ? "bg-slate-50" : "bg-white";
+function parseClosingMinutes(todayHours: string | null, now: number): number | null {
+  if (!todayHours || todayHours === "Closed today" || todayHours === "Open 24 hours") return null;
+  // today_hours format: "Today: 9:00 AM – 5:00 PM" (en-dash or regular dash)
+  const match = todayHours.match(/[–\-]\s*(\d+)(?::(\d+))?\s*(AM|PM)/i);
+  if (!match) return null;
+  let hour = parseInt(match[1], 10);
+  const minute = match[2] ? parseInt(match[2], 10) : 0;
+  const ampm = match[3].toUpperCase();
+  if (ampm === "PM" && hour !== 12) hour += 12;
+  if (ampm === "AM" && hour === 12) hour = 0;
+  const close = new Date(now);
+  close.setHours(hour, minute, 0, 0);
+  const diffMins = Math.floor((close.getTime() - now) / 60_000);
+  return diffMins >= 0 && diffMins <= 60 ? diffMins : null;
+}
+
+function ProviderCard({ provider: p, rank, now }: { provider: Provider; rank: number; now: number }) {
+  const isTopMatch = p.top_match;
+  const minsUntilClose = p.open_now === true ? parseClosingMinutes(p.today_hours, now) : null;
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: rank * 0.07 }}
-      className={`relative ${bgClass} rounded-2xl border p-4 flex gap-4 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-default ${
-        p.insurance_match ? "border-blue-200 ring-1 ring-blue-100" : "border-slate-100"
+      className={`relative rounded-2xl border p-4 flex gap-4 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-default ${
+        isTopMatch
+          ? "border-blue-200"
+          : p.insurance_match ? "border-blue-200 ring-1 ring-blue-100" : "border-slate-100"
       }`}
+      style={{ background: isTopMatch ? "rgba(239, 246, 255, 0.8)" : "white" }}
     >
-      {rank === 1 && (
+      {isTopMatch && (
         <div
           className="absolute -top-px -right-px px-2.5 py-0.5 rounded-bl-xl rounded-tr-2xl text-[10px] font-bold text-white"
           style={{ background: "linear-gradient(135deg, #1E40AF, #059669)" }}
@@ -572,7 +596,15 @@ function ProviderCard({ provider: p, rank }: { provider: Provider; rank: number 
               </span>
             )}
           </div>
-          {p.open_now === true ? (
+          {p.open_now === true && minsUntilClose !== null ? (
+            <span className={`flex-shrink-0 text-xs font-medium px-2.5 py-0.5 rounded-full ${
+              minsUntilClose <= 15
+                ? "bg-red-50 text-red-600"
+                : "bg-amber-50 text-amber-700"
+            }`}>
+              Closing in {minsUntilClose} min{minsUntilClose !== 1 ? "s" : ""}
+            </span>
+          ) : p.open_now === true ? (
             <span className="flex-shrink-0 text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">
               Open Now
             </span>
@@ -588,10 +620,23 @@ function ProviderCard({ provider: p, rank }: { provider: Provider; rank: number 
           )}
         </div>
 
-        <p className="text-xs text-slate-400 flex items-center gap-1 mb-2.5">
-          <MapPin className="w-3 h-3 flex-shrink-0" />
-          <span className="truncate">{p.address}</span>
-        </p>
+        <div className="space-y-0.5 mb-2.5">
+          <p className="text-xs text-slate-400 flex items-center gap-1">
+            <MapPin className="w-3 h-3 flex-shrink-0" />
+            <span className="truncate">{p.address}</span>
+          </p>
+          {p.today_hours && (
+            <p className="text-xs text-slate-400 flex items-center gap-1">
+              <Clock className="w-3 h-3 flex-shrink-0" />
+              {p.today_hours}
+            </p>
+          )}
+          {isTopMatch && p.open_now === false && p.next_open && (
+            <p className="text-xs text-blue-500 pl-4">
+              Best rated nearby - opens {p.next_open}
+            </p>
+          )}
+        </div>
 
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {p.rating !== null && (
@@ -725,17 +770,27 @@ export default function CareSensePage() {
   const [triageLoading, setTriageLoading] = useState(false);
   const [providersLoading, setProvidersLoading] = useState(false);
   const [triageError, setTriageError] = useState<string | null>(null);
+  const [notHealthRelated, setNotHealthRelated] = useState(false);
   const [modal, setModal] = useState<{ title: string; body: string } | null>(null);
 
   const resultsRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<unknown>(null);
+  const [isRecording, setIsRecording] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [cardFocused, setCardFocused] = useState(false);
+  const [selectedChips, setSelectedChips] = useState<string[]>([]);
+  const [providerNow, setProviderNow] = useState(() => Date.now());
 
   useEffect(() => {
     function onScroll() { setScrolled(window.scrollY > 10); }
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setProviderNow(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, [providers]);
 
   // ── Navigation & modal handlers ────────────────────────────────────────────
 
@@ -766,18 +821,77 @@ export default function CareSensePage() {
   }
 
   function handleSymptomChipClick(chip: string) {
-    setSymptom((prev) => {
-      if (prev.toLowerCase().includes(chip.toLowerCase())) return prev;
-      return prev ? `${prev}, ${chip.toLowerCase()}` : chip.toLowerCase();
-    });
-  }
-
-  function isChipActive(chip: string) {
-    return symptom.toLowerCase().includes(chip.toLowerCase());
+    const isSelected = selectedChips.includes(chip);
+    if (isSelected) {
+      setSelectedChips((prev) => prev.filter((c) => c !== chip));
+      setSymptom((prev) => {
+        const patterns = [
+          new RegExp(`,\\s*${chip}`, "i"),
+          new RegExp(`${chip},\\s*`, "i"),
+          new RegExp(chip, "i"),
+        ];
+        let next = prev;
+        for (const re of patterns) {
+          const replaced = next.replace(re, "").trim();
+          if (replaced !== next.trim()) { next = replaced; break; }
+        }
+        return next.replace(/^,\s*|,\s*$/g, "").trim();
+      });
+    } else {
+      setSelectedChips((prev) => [...prev, chip]);
+      setSymptom((prev) => (prev.trim() ? `${prev.trim()}, ${chip.toLowerCase()}` : chip.toLowerCase()));
+    }
   }
 
   function handleSymptomTextChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setSymptom(e.target.value);
+    setSelectedChips([]);
+  }
+
+  function handleVoiceToggle() {
+    if (isRecording) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (recognitionRef.current as any)?.stop();
+      return;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SpeechAPI = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechAPI) {
+      alert("Voice input is not supported in your browser. Please use Chrome or Safari.");
+      return;
+    }
+
+    const recognition = new SpeechAPI();
+    recognitionRef.current = recognition;
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    recognition.onstart = () => setIsRecording(true);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((result: any) => result[0].transcript)
+        .join("");
+      setSymptom(transcript);
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onerror = (event: any) => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+      void event;
+    };
+
+    recognition.start();
   }
 
   function handleCopySummary() {
@@ -942,11 +1056,12 @@ export default function CareSensePage() {
     if (!insuranceProvider || !planType || !symptom.trim()) return;
 
     setTriageError(null);
+    setNotHealthRelated(false);
     setTriage(null);
     setProviders(null);
     setTriageLoading(true);
 
-    const { data: triageData, error } = await fetchTriage({
+    const { data: triageData, error, notHealthRelated: isNotHealth } = await fetchTriage({
       insuranceProvider,
       planType,
       symptom: symptom.trim(),
@@ -954,6 +1069,12 @@ export default function CareSensePage() {
     });
 
     setTriageLoading(false);
+
+    if (isNotHealth) {
+      setNotHealthRelated(true);
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+      return;
+    }
 
     if (!triageData) {
       setTriageError(error ?? "Something went wrong. Please try again.");
@@ -964,12 +1085,14 @@ export default function CareSensePage() {
     setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
 
     if (location) {
+      const isPharmacySearch =
+        triageData.intent === "pharmacy_needed" || triageData.intent === "travel_health";
       setProvidersLoading(true);
       const pData = await fetchProviders({
         specialist_needed: triageData.specialist_needed,
         urgency: triageData.urgency,
         location,
-        insurance_provider: insuranceProvider,
+        insurance_provider: isPharmacySearch ? "" : insuranceProvider,
       });
       if (pData) setProviders(pData);
       setProvidersLoading(false);
@@ -988,7 +1111,20 @@ export default function CareSensePage() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen" style={{ background: "#F8FAFC" }}>
+    <div
+      className="min-h-screen bg-[#F8FAFC]"
+      style={{
+        backgroundImage: 'radial-gradient(circle, #CBD5E1 1px, transparent 1px)',
+        backgroundSize: '28px 28px',
+      }}
+    >
+      <div
+        className="fixed inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse at 50% 30%, rgba(248,250,252,0.92) 0%, rgba(248,250,252,0.5) 50%, transparent 100%)',
+          zIndex: 0,
+        }}
+      />
       {modal && <Modal title={modal.title} body={modal.body} onClose={handleCloseModal} />}
 
       {/* ── Emergency bar ── */}
@@ -1001,7 +1137,11 @@ export default function CareSensePage() {
             className="fixed top-0 left-0 right-0 z-50 bg-red-600 text-white text-sm font-semibold text-center py-2 px-4 flex items-center justify-center gap-2"
           >
             <Siren className="w-4 h-4 animate-pulse flex-shrink-0" />
-            🚨 Medical Emergency Detected — Call 911 immediately or go to the nearest ER
+            🚨 Medical Emergency Detected -{" "}
+            <a href="tel:911" target="_self" className="underline underline-offset-2 hover:opacity-80">
+              Call 911
+            </a>{" "}
+            immediately or go to the nearest ER
             <Siren className="w-4 h-4 animate-pulse flex-shrink-0" />
           </motion.div>
         )}
@@ -1011,8 +1151,10 @@ export default function CareSensePage() {
       <nav
         className={`sticky z-40 w-full transition-all duration-300 ${isEmergency ? "top-9" : "top-0"}`}
         style={{
-          background: "#ffffff",
-          borderBottom: scrolled ? "1px solid rgba(0,0,0,0.08)" : "1px solid transparent",
+          position: "relative",
+          background: scrolled ? "rgba(248,250,252,0.88)" : "transparent",
+          backdropFilter: scrolled ? "blur(10px)" : "none",
+          borderBottom: scrolled ? "1px solid rgba(0,0,0,0.07)" : "1px solid transparent",
         }}
       >
         <div className="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -1041,37 +1183,63 @@ export default function CareSensePage() {
         </div>
       </nav>
 
-      <main className={`max-w-3xl mx-auto px-4 pb-24 space-y-6 ${isEmergency ? "pt-20" : "pt-10"}`}>
+      <main className={`max-w-3xl mx-auto px-4 pb-24 space-y-6 ${isEmergency ? "pt-20" : "pt-10"}`} style={{ position: "relative", zIndex: 1 }}>
 
         {/* ── Hero ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="text-center pt-4 pb-2 relative"
+          className="text-center pt-4 pb-2"
           style={{
-            backgroundImage: "radial-gradient(circle, #CBD5E1 1px, transparent 1px)",
-            backgroundSize: "24px 24px",
+            position: "relative",
           }}
         >
-          {/* Edge fade — strong center wash, dots only visible at very edges */}
+          {/* Glow 1 - top-right, primary blue */}
           <div
-            className="absolute inset-0 pointer-events-none"
+            className="float-slow pointer-events-none absolute rounded-full"
             style={{
-              background: "radial-gradient(ellipse 75% 75% at 50% 50%, rgba(248,250,252,0.95) 0%, rgba(248,250,252,0.95) 40%, transparent 75%)",
+              top: "-200px",
+              right: "-200px",
+              width: "600px",
+              height: "600px",
+              background: "radial-gradient(circle at center, var(--primary) 0%, transparent 60%)",
+              filter: "blur(90px)",
+              opacity: 0.14,
+              zIndex: 0,
             }}
           />
+          {/* Glow 2 - bottom-left, accent green */}
           <div
-            className="float-slow pointer-events-none absolute -top-6 -right-12 w-48 h-48 rounded-full opacity-30 blur-3xl"
-            style={{ background: "radial-gradient(circle, #1E40AF 0%, transparent 70%)" }}
+            className="float-medium pointer-events-none absolute rounded-full"
+            style={{
+              bottom: "-200px",
+              left: "-200px",
+              width: "560px",
+              height: "560px",
+              background: "radial-gradient(circle at center, var(--accent) 0%, transparent 60%)",
+              filter: "blur(80px)",
+              opacity: 0.13,
+              zIndex: 0,
+            }}
           />
+          {/* Glow 3 - upper-left, primary blue */}
           <div
-            className="float-medium pointer-events-none absolute -bottom-4 -left-8 w-36 h-36 rounded-full opacity-20 blur-2xl"
-            style={{ background: "radial-gradient(circle, #059669 0%, transparent 70%)" }}
+            className="pointer-events-none absolute rounded-full"
+            style={{
+              top: "-150px",
+              left: "-150px",
+              width: "500px",
+              height: "500px",
+              background: "radial-gradient(circle at center, var(--primary) 0%, transparent 60%)",
+              filter: "blur(85px)",
+              opacity: 0.13,
+              zIndex: 0,
+            }}
           />
           <h1
             className="text-4xl md:text-5xl leading-tight mb-3"
-            style={{ fontFamily: "var(--font-fraunces)", fontWeight: 800, color: "#0F172A", position: "relative", zIndex: 10 }}
+            style={{ fontFamily: "var(--font-fraunces)", fontWeight: 800, color: "#0F172A", position: "relative", zIndex: 1 }}
           >
             Feel better,{" "}
             <em style={{ color: "#059669", fontFamily: "var(--font-fraunces)", fontWeight: 800, fontStyle: "italic" }}>
@@ -1080,13 +1248,13 @@ export default function CareSensePage() {
           </h1>
           <p
             className="text-base max-w-md mx-auto leading-relaxed mb-6"
-            style={{ color: "#475569", position: "relative", zIndex: 10 }}
+            style={{ color: "#475569", position: "relative", zIndex: 1 }}
           >
-            Describe your symptoms and get instant AI triage guidance — including home care, specialist recommendations, and providers near you.
+            Describe your symptoms and get instant AI triage guidance - including home care, specialist recommendations, and providers near you.
           </p>
           <div
             className="flex items-center justify-center flex-wrap gap-2 mb-2"
-            style={{ position: "relative", zIndex: 10 }}
+            style={{ position: "relative", zIndex: 1 }}
           >
             {[
               { icon: Shield, text: "Private & secure", floatClass: "pill-float-a" },
@@ -1207,21 +1375,26 @@ export default function CareSensePage() {
                     What&apos;s going on?
                   </p>
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {SYMPTOM_CHIPS.map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => handleSymptomChipClick(chip)}
-                        className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-all hover:scale-105 ${
-                          isChipActive(chip)
-                            ? "bg-blue-50 border-blue-300 text-blue-700 shadow-sm"
-                            : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-sm hover:shadow-emerald-100/50"
-                        }`}
-                      >
-                        {isChipActive(chip) && <Check className="w-3 h-3 flex-shrink-0" />}
-                        {chip}
-                      </button>
-                    ))}
+                    {SYMPTOM_CHIPS.map((chip) => {
+                      const active = selectedChips.includes(chip);
+                      return (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => handleSymptomChipClick(chip)}
+                          className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-all hover:scale-105 ${
+                            active
+                              ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+                              : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-sm hover:shadow-emerald-100/50"
+                          }`}
+                        >
+                          {active ? (
+                            <X className="w-3 h-3 flex-shrink-0" />
+                          ) : null}
+                          {chip}
+                        </button>
+                      );
+                    })}
                   </div>
                   <div className="relative">
                     <textarea
@@ -1229,20 +1402,68 @@ export default function CareSensePage() {
                       onChange={handleSymptomTextChange}
                       placeholder="Describe your symptoms in your own words…"
                       rows={3}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
+                      style={isRecording ? { borderColor: "#FCA5A5", boxShadow: "0 0 0 2px rgba(252,165,165,0.3)" } : {}}
                     />
-                    {symptom.length > 100 && (
-                      <span className="absolute bottom-2.5 right-3 text-[10px] text-slate-400">
+
+                    {/* Mic button */}
+                    <button
+                      type="button"
+                      onClick={handleVoiceToggle}
+                      className="absolute bottom-2.5 right-2.5 p-1 rounded-lg transition-colors"
+                      style={{ color: isRecording ? "#EF4444" : "#94A3B8" }}
+                      title={isRecording ? "Stop recording" : "Speak your symptoms"}
+                    >
+                      <div className="relative">
+                        {isRecording && (
+                          <span className="absolute inset-0 rounded-full bg-red-400 animate-ping opacity-40" />
+                        )}
+                        {isRecording
+                          ? <MicOff className="w-4 h-4 relative" />
+                          : <Mic className="w-4 h-4" />
+                        }
+                      </div>
+                    </button>
+
+                    {symptom.length > 100 && !isRecording && (
+                      <span className="absolute bottom-2.5 right-9 text-[10px] text-slate-400">
                         {symptom.length} chars
                       </span>
                     )}
                   </div>
+
+                  {/* Recording / idle hint */}
+                  <AnimatePresence mode="wait">
+                    {isRecording ? (
+                      <motion.p
+                        key="recording"
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.2 }}
+                        className="mt-1.5 text-xs text-red-500 font-medium"
+                      >
+                        🎤 Listening… speak your symptoms
+                      </motion.p>
+                    ) : (
+                      <motion.p
+                        key="idle"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="mt-1.5 text-[11px] text-slate-400"
+                      >
+                        🎤 Or speak your symptoms
+                      </motion.p>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 {/* Location */}
                 <div>
                   <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    Location <span className="font-normal normal-case text-slate-300">(optional — for nearby providers)</span>
+                    Location <span className="font-normal normal-case text-slate-300">(optional - for nearby providers)</span>
                   </p>
                   <div className="flex flex-wrap gap-2">
                     <button
@@ -1385,6 +1606,53 @@ export default function CareSensePage() {
         {/* ── Results scroll anchor ── */}
         <div ref={resultsRef} className="scroll-mt-20" />
 
+        {/* ── Not health related card ── */}
+        <AnimatePresence>
+          {notHealthRelated && (
+            <motion.div
+              key="not-health"
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 16 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm"
+            >
+              <div className="flex items-start gap-4">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+                  style={{ background: "linear-gradient(135deg, #EFF6FF, #DBEAFE)" }}
+                >
+                  <Heart className="w-5 h-5" style={{ color: "#1E40AF" }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-slate-900 text-base mb-1">
+                    That&apos;s outside our expertise
+                  </h3>
+                  <p className="text-sm text-slate-500 leading-relaxed mb-4">
+                    CareSense AI focuses on health and medical guidance. Try describing a physical symptom or health concern - like &ldquo;I have a headache and fever&rdquo; or &ldquo;my knee has been hurting for 3 days.&rdquo;
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {["I have a headache", "Sore throat and fever", "Stomach pain"].map((phrase) => (
+                      <button
+                        key={phrase}
+                        type="button"
+                        onClick={() => {
+                          setSymptom(phrase);
+                          setNotHealthRelated(false);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        className="text-xs px-3 py-1.5 rounded-full border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                      >
+                        {phrase}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* ── Triage Result ── */}
         <AnimatePresence>
           {triage && sevConfig && SevIcon && urgencyConfig && UrgencyIcon && (
@@ -1416,7 +1684,7 @@ export default function CareSensePage() {
               <div className="grid grid-cols-2 gap-3 mb-5">
                 <div className="bg-white/70 rounded-xl p-4 backdrop-blur-sm">
                   <p className="text-xs text-slate-500 mb-1">Specialist Needed</p>
-                  <p className="font-semibold text-slate-900 text-sm">{triage.specialist_needed ?? "—"}</p>
+                  <p className="font-semibold text-slate-900 text-sm">{triage.specialist_needed ?? "-"}</p>
                 </div>
                 <div className="bg-white/70 rounded-xl p-4 backdrop-blur-sm">
                   <p className="text-xs text-slate-500 mb-1">Recommendation</p>
@@ -1446,12 +1714,13 @@ export default function CareSensePage() {
                 </div>
               </div>
 
+              {triage.warning_signs != null && triage.warning_signs.length > 0 && (
               <div className="mb-5">
                 <h3 className="text-sm font-semibold text-slate-700 mb-2.5">
-                  Warning Signs — Seek Immediate Care If:
+                  Warning Signs - Seek Immediate Care If:
                 </h3>
                 <div className="space-y-2">
-                  {(triage.warning_signs ?? []).map((sign, i) => (
+                  {triage.warning_signs.map((sign, i) => (
                     <motion.div
                       key={i}
                       initial={{ opacity: 0, x: -6 }}
@@ -1468,8 +1737,9 @@ export default function CareSensePage() {
                   ))}
                 </div>
               </div>
+              )}
 
-              {triage.what_to_tell_doctor?.length > 0 && (
+              {triage.what_to_tell_doctor != null && triage.what_to_tell_doctor.length > 0 && (
                 <div className="mb-5">
                   <div className="flex items-center gap-2 mb-2.5">
                     <ClipboardList className="w-4 h-4 text-slate-600" />
@@ -1533,13 +1803,15 @@ export default function CareSensePage() {
                 </div>
               )}
 
-              <div className="flex gap-3 bg-blue-50/80 rounded-xl p-4 border border-blue-100 backdrop-blur-sm">
-                <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-xs font-semibold text-blue-700 mb-0.5">Insurance Guidance</p>
-                  <p className="text-sm text-blue-700">{triage.insurance_note ?? ""}</p>
+              {triage.insurance_note && (
+                <div className="flex gap-3 bg-blue-50/80 rounded-xl p-4 border border-blue-100 backdrop-blur-sm">
+                  <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs font-semibold text-blue-700 mb-0.5">Insurance Guidance</p>
+                    <p className="text-sm text-blue-700">{triage.insurance_note}</p>
+                  </div>
                 </div>
-              </div>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -1555,8 +1827,14 @@ export default function CareSensePage() {
           >
             <div className="flex items-center gap-2 mb-3">
               <MapPin className="w-5 h-5 flex-shrink-0 text-blue-700" />
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">Nearby Providers</h2>
-              {triage && <span className="text-sm text-slate-400">— {triage.specialist_needed}</span>}
+              <h2 className="text-lg font-bold text-slate-900 tracking-tight">
+                {triage?.intent === "pharmacy_needed" || triage?.intent === "travel_health"
+                  ? "Nearby Pharmacies"
+                  : "Nearby Providers"}
+              </h2>
+              {triage && triage.intent !== "pharmacy_needed" && triage.intent !== "travel_health" && (
+                <span className="text-sm text-slate-400">- {triage.specialist_needed}</span>
+              )}
             </div>
 
             {providersLoading && (
@@ -1578,7 +1856,7 @@ export default function CareSensePage() {
                     <ul className="space-y-2 text-sm text-slate-700">
                       <li className="flex items-start gap-2">
                         <span className="text-red-400 flex-shrink-0 mt-0.5">•</span>
-                        <span className="font-medium text-red-600">Call 911 immediately</span>
+                        <a href="tel:911" target="_self" className="font-medium text-red-600 underline underline-offset-2 hover:opacity-80">Call 911 immediately</a>
                       </li>
                       <li className="flex items-start gap-2">
                         <span className="text-slate-400 flex-shrink-0 mt-0.5">•</span>
@@ -1664,7 +1942,7 @@ export default function CareSensePage() {
                 )}
                 <div className="space-y-3">
                   {providers.providers.map((p, i) => (
-                    <ProviderCard key={p.place_id} provider={p} rank={i + 1} />
+                    <ProviderCard key={p.place_id} provider={p} rank={i + 1} now={providerNow} />
                   ))}
                 </div>
               </>
