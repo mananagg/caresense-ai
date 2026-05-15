@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Use server-only env var (no NEXT_PUBLIC_ prefix) so the key is never bundled client-side.
-// Add GOOGLE_PLACES_API_KEY to .env.local alongside NEXT_PUBLIC_GOOGLE_PLACES_API_KEY.
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
 // ── Security ─────────────────────────────────────────────────────────────────

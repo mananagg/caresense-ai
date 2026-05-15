@@ -12,7 +12,8 @@
 }
 
 body {
-  background: var(--background);
+  background: linear-gradient(135deg, #F0F7FF 0%, #F8FAFC 40%, #F0FDF4 100%);
+  min-height: 100vh;
   color: var(--foreground);
   font-family: var(--font-sans);
 }

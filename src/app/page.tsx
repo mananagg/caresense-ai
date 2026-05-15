@@ -54,6 +54,13 @@ const PLAN_TYPES = [
 
 const SYMPTOM_CHIPS = ["Sore throat", "Fever", "Headache", "Stomach pain"];
 
+const PLACEHOLDER_TEXTS = [
+  "I have a sore throat and fever since morning...",
+  "My knee has been hurting for 3 days...",
+  "I have a headache and feel nauseous...",
+  "Describe how you're feeling...",
+];
+
 const LOADING_MESSAGES = [
   "Analyzing your symptoms…",
   "Checking severity…",
@@ -809,6 +816,11 @@ export default function CareSensePage() {
   const [isRecording, setIsRecording] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [cardFocused, setCardFocused] = useState(false);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [placeholderTyped, setPlaceholderTyped] = useState(0);
+  const [placeholderVisible, setPlaceholderVisible] = useState(true);
+  const placeholderTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [textareaFocused, setTextareaFocused] = useState(false);
   const [selectedChips, setSelectedChips] = useState<string[]>([]);
   const [providerNow, setProviderNow] = useState(() => Date.now());
 
@@ -821,7 +833,7 @@ export default function CareSensePage() {
   useEffect(() => {
     const interval = setInterval(() => setProviderNow(Date.now()), 60_000);
     return () => clearInterval(interval);
-  }, [providers]);
+  }, []);
 
   // ── Constellation canvas ───────────────────────────────────────────────────
   useEffect(() => {
@@ -891,7 +903,7 @@ export default function CareSensePage() {
         }
       }
 
-      ctx.fillStyle = "rgba(148,163,184,0.5)";
+      ctx.fillStyle = "rgba(148,163,184,0.65)";
       for (const d of dots) {
         ctx.beginPath();
         ctx.arc(d.x, d.y, 2.25, 0, Math.PI * 2);
@@ -913,6 +925,20 @@ export default function CareSensePage() {
     document.documentElement.style.scrollBehavior = "smooth";
     return () => { document.documentElement.style.scrollBehavior = ""; };
   }, []);
+
+  useEffect(() => {
+    placeholderTimers.current.forEach(clearTimeout);
+    placeholderTimers.current = [];
+    const push = (fn: () => void, ms: number) =>
+      placeholderTimers.current.push(setTimeout(fn, ms));
+    const text = PLACEHOLDER_TEXTS[placeholderIdx];
+    push(() => { setPlaceholderTyped(0); setPlaceholderVisible(true); }, 0);
+    text.split("").forEach((_, i) => push(() => setPlaceholderTyped(i + 1), (i + 1) * 45));
+    const typeTime = text.length * 45;
+    push(() => setPlaceholderVisible(false), typeTime + 800);
+    push(() => setPlaceholderIdx((i) => (i + 1) % PLACEHOLDER_TEXTS.length), typeTime + 1100);
+    return () => { placeholderTimers.current.forEach(clearTimeout); placeholderTimers.current = []; };
+  }, [placeholderIdx]);
 
   // ── Navigation & modal handlers ────────────────────────────────────────────
 
@@ -1234,7 +1260,7 @@ export default function CareSensePage() {
 
   return (
     <div
-      className="min-h-screen bg-[#F8FAFC] overflow-x-hidden"
+      className="min-h-screen overflow-x-hidden"
     >
       <canvas
         ref={canvasRef}
@@ -1274,7 +1300,6 @@ export default function CareSensePage() {
       <nav
         className={`sticky z-40 w-full transition-all duration-300 ${isEmergency ? "top-9" : "top-0"}`}
         style={{
-          position: "relative",
           background: scrolled ? "rgba(248,250,252,0.88)" : "transparent",
           backdropFilter: scrolled ? "blur(10px)" : "none",
           borderBottom: scrolled ? "1px solid rgba(0,0,0,0.07)" : "1px solid transparent",
@@ -1306,14 +1331,14 @@ export default function CareSensePage() {
         </div>
       </nav>
 
-      <main className={`max-w-3xl mx-auto px-4 pb-24 space-y-6 ${isEmergency ? "pt-20" : "pt-10"}`} style={{ position: "relative", zIndex: 1 }}>
+      <main className={`max-w-3xl mx-auto px-4 pb-24 space-y-4 ${isEmergency ? "pt-20" : "pt-6"}`} style={{ position: "relative", zIndex: 1 }}>
 
         {/* ── Hero ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="text-center pt-4 pb-2"
+          className="text-center pt-2 pb-1"
           style={{
             position: "relative",
           }}
@@ -1370,13 +1395,13 @@ export default function CareSensePage() {
             </em>
           </h1>
           <p
-            className="text-base max-w-md mx-auto leading-relaxed mb-6"
+            className="text-base max-w-md mx-auto leading-relaxed mb-4"
             style={{ color: "#475569", position: "relative", zIndex: 1 }}
           >
             Describe your symptoms and get instant AI triage guidance - including home care, specialist recommendations, and providers near you.
           </p>
           <div
-            className="flex items-center justify-center flex-wrap gap-2 mb-2"
+            className="flex items-center justify-center flex-wrap gap-2 mb-1"
             style={{ position: "relative", zIndex: 1 }}
           >
             {[
@@ -1406,7 +1431,7 @@ export default function CareSensePage() {
             onFocus={() => setCardFocused(true)}
             onBlur={() => setCardFocused(false)}
           >
-            <div className="bg-white rounded-2xl overflow-hidden">
+            <div className="rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(10px)" }}>
               <div className="h-1 w-full" style={{ background: "linear-gradient(to right, #1E40AF, #059669)" }} />
 
               <div className="p-4 sm:p-6 space-y-5">
@@ -1498,8 +1523,14 @@ export default function CareSensePage() {
                     What&apos;s going on?
                   </p>
                   <div className="flex flex-wrap gap-2 mb-3">
-                    {SYMPTOM_CHIPS.map((chip) => {
+                    {SYMPTOM_CHIPS.map((chip, chipIdx) => {
                       const active = selectedChips.includes(chip);
+                      const hoverStyles = [
+                        "hover:border-red-300 hover:bg-red-50 hover:text-red-700 hover:shadow-sm hover:shadow-red-100/50",
+                        "hover:border-amber-300 hover:bg-amber-50 hover:text-amber-700 hover:shadow-sm hover:shadow-amber-100/50",
+                        "hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700 hover:shadow-sm hover:shadow-purple-100/50",
+                        "hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 hover:shadow-sm hover:shadow-blue-100/50",
+                      ];
                       return (
                         <button
                           key={chip}
@@ -1508,7 +1539,7 @@ export default function CareSensePage() {
                           className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full border transition-all hover:scale-105 ${
                             active
                               ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-                              : "border-slate-200 text-slate-600 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 hover:shadow-sm hover:shadow-emerald-100/50"
+                              : `border-slate-200 text-slate-600 ${hoverStyles[chipIdx % hoverStyles.length]}`
                           }`}
                         >
                           {active ? (
@@ -1523,11 +1554,22 @@ export default function CareSensePage() {
                     <textarea
                       value={symptom}
                       onChange={handleSymptomTextChange}
-                      placeholder="Describe your symptoms in your own words…"
+                      placeholder=""
                       rows={3}
-                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-800 placeholder-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
+                      onFocus={() => setTextareaFocused(true)}
+                      onBlur={() => setTextareaFocused(false)}
+                      className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 pr-10 text-sm text-slate-800 resize-none focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent transition-all"
                       style={isRecording ? { borderColor: "#FCA5A5", boxShadow: "0 0 0 2px rgba(252,165,165,0.3)" } : {}}
                     />
+                    {!symptom && !textareaFocused && (
+                      <div
+                        className="absolute top-0 left-0 px-4 py-3 text-sm pointer-events-none select-none"
+                        style={{ color: "#94A3B8", opacity: placeholderVisible ? 1 : 0, transition: "opacity 0.3s ease" }}
+                      >
+                        {PLACEHOLDER_TEXTS[placeholderIdx].slice(0, placeholderTyped)}
+                        <span className="animate-pulse">|</span>
+                      </div>
+                    )}
 
                     {/* Mic button */}
                     <button

@@ -3,119 +3,139 @@ import { NextRequest } from "next/server";
 
 jest.setTimeout(30000);
 
-jest.mock("@google/generative-ai", () => ({
-  GoogleGenerativeAI: jest.fn().mockImplementation(() => ({
-    getGenerativeModel: jest.fn().mockReturnValue({
-      generateContent: jest.fn().mockImplementation(async (userMessage: string) => {
-        const msg = String(userMessage).toLowerCase();
-  let data: Record<string, unknown>;
+jest.mock("groq-sdk", () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    chat: {
+      completions: {
+        create: jest.fn().mockImplementation(
+          async (params: {
+            max_tokens?: number;
+            messages: Array<{ role: string; content: string }>;
+          }) => {
+            // Health-check call has max_tokens: 5 — always say YES
+            if (params.max_tokens === 5) {
+              return { choices: [{ message: { content: "YES" } }] };
+            }
 
-  if (msg.includes("chest pain")) {
-    data = {
-      severity: "high",
-      urgency: "emergency",
-      specialist_needed: "ER",
-      should_see_doctor: true,
-      home_care_steps: ["Call 911 immediately", "Do not drive yourself", "Chew aspirin if not allergic"],
-      warning_signs: ["Loss of consciousness", "Severe shortness of breath", "Jaw or arm pain worsening"],
-      what_to_tell_doctor: [
-        "Mention pain started suddenly",
-        "Describe radiation to left arm",
-        "Tell them about shortness of breath",
-        "Mention sweating began with the pain",
-      ],
-      pre_visit_summary:
-        "🚨 EMERGENCY PRESENTATION\nChief Complaint: Chest pain\nSymptoms: Chest pain, left arm radiation, shortness of breath, sweating\nOnset: Sudden onset\nSeverity: Critical\nAction Required: Immediate emergency care",
-      insurance_note:
-        "For emergency care, your PPO plan covers ER visits with a higher copay, typically $150–350. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
-    };
-  } else if (msg.includes("fever")) {
-    data = {
-      severity: "medium",
-      urgency: "today",
-      specialist_needed: "Primary Care",
-      should_see_doctor: true,
-      home_care_steps: [
-        "Take acetaminophen 500mg every 6 hours",
-        "Stay hydrated with water and electrolytes",
-        "Rest and avoid strenuous activity",
-        "Monitor temperature every 4 hours",
-      ],
-      warning_signs: ["Fever above 104°F", "Difficulty breathing", "Severe headache", "Skin rash"],
-      what_to_tell_doctor: [
-        "Mention fever started 3 days ago",
-        "Describe the body aches and fatigue",
-        "Tell them the current temperature reading",
-        "Mention any medications taken so far",
-      ],
-      pre_visit_summary:
-        "Chief Complaint: High fever\nSymptoms: Fever 102°F, body aches, fatigue\nDuration: 3 days\nSeverity: Medium\nReason for Visit: Persistent fever requiring medical evaluation",
-      insurance_note:
-        "HMO plans require a PCP referral before seeing a specialist. Copays are typically $20–50 with referral. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
-    };
-  } else if (msg.includes("back pain")) {
-    data = {
-      severity: "medium",
-      urgency: "this_week",
-      specialist_needed: "Orthopedist",
-      should_see_doctor: true,
-      home_care_steps: [
-        "Apply ice for 20 minutes every 2 hours",
-        "Take ibuprofen 400mg with food every 6–8 hours",
-        "Avoid heavy lifting and sudden movements",
-        "Try gentle stretching for lower back",
-      ],
-      warning_signs: [
-        "Numbness or tingling down legs",
-        "Loss of bladder or bowel control",
-        "Fever accompanying back pain",
-        "Pain radiating below the knee",
-      ],
-      what_to_tell_doctor: [
-        "Mention pain has persisted for two weeks",
-        "Describe what makes it better or worse",
-        "Tell them about any prior back injuries",
-        "Mention your daily activity level",
-      ],
-      pre_visit_summary:
-        "Chief Complaint: Lower back pain\nSymptoms: Persistent lower back pain\nDuration: Two weeks\nSeverity: Medium\nReason for Visit: Ongoing back pain requiring diagnosis",
-      insurance_note:
-        "With your HDHP plan, you pay the full cost of visits until your annual deductible is met, typically $1,500–4,000. After meeting the deductible, your coinsurance applies. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
-    };
-  } else {
-    data = {
-      severity: "low",
-      urgency: "routine",
-      specialist_needed: "Primary Care",
-      should_see_doctor: false,
-      home_care_steps: [
-        "Rest and drink at least 8 glasses of water daily",
-        "Use saline nasal spray 2–3 times per day",
-        "Gargle warm salt water for sore throat relief",
-        "Take an OTC antihistamine if sneezing is disruptive",
-      ],
-      warning_signs: [
-        "Fever above 103°F",
-        "Difficulty breathing or chest tightness",
-        "Symptoms lasting more than 10 days",
-        "Severe sinus pain or headache",
-      ],
-      what_to_tell_doctor: [
-        "Mention symptoms started 2 days ago",
-        "Describe the severity of the sore throat",
-        "Tell them about any known allergies",
-        "Mention if anyone around you is also sick",
-      ],
-      pre_visit_summary:
-        "Chief Complaint: Cold symptoms\nSymptoms: Runny nose, mild sore throat, sneezing\nDuration: 2 days\nSeverity: Low\nReason for Visit: Mild cold symptoms, routine check if not improving",
-      insurance_note:
-        "PPO plans typically have PCP copays of $20–45 per visit. No referral needed for self-referred specialist visits. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
-    };
-  }
+            const userMsg =
+              params.messages.find((m) => m.role === "user")?.content ?? "";
+            const msg = String(userMsg).toLowerCase();
 
-        return { response: { text: () => JSON.stringify(data) } };
-      }),
-    }),
+            let data: Record<string, unknown>;
+
+            if (msg.includes("chest pain")) {
+              data = {
+                intent: "symptom_triage",
+                severity: "high",
+                urgency: "emergency",
+                specialist_needed: "ER",
+                should_see_doctor: true,
+                home_care_steps: ["Call 911 immediately", "Do not drive yourself", "Chew aspirin if not allergic"],
+                warning_signs: ["Loss of consciousness", "Severe shortness of breath", "Jaw or arm pain worsening"],
+                what_to_tell_doctor: [
+                  "Mention pain started suddenly",
+                  "Describe radiation to left arm",
+                  "Tell them about shortness of breath",
+                  "Mention sweating began with the pain",
+                ],
+                pre_visit_summary:
+                  "🚨 EMERGENCY PRESENTATION\nChief Complaint: Chest pain\nSymptoms: Chest pain, left arm radiation, shortness of breath, sweating\nOnset: Sudden onset\nSeverity: Critical\nAction Required: Immediate emergency care",
+                insurance_note:
+                  "For emergency care, your PPO plan covers ER visits with a higher copay, typically $150–350. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
+              };
+            } else if (msg.includes("fever")) {
+              data = {
+                intent: "symptom_triage",
+                severity: "medium",
+                urgency: "today",
+                specialist_needed: "Primary Care",
+                should_see_doctor: true,
+                home_care_steps: [
+                  "Take acetaminophen 500mg every 6 hours",
+                  "Stay hydrated with water and electrolytes",
+                  "Rest and avoid strenuous activity",
+                  "Monitor temperature every 4 hours",
+                ],
+                warning_signs: ["Fever above 104°F", "Difficulty breathing", "Severe headache", "Skin rash"],
+                what_to_tell_doctor: [
+                  "Mention fever started 3 days ago",
+                  "Describe the body aches and fatigue",
+                  "Tell them the current temperature reading",
+                  "Mention any medications taken so far",
+                ],
+                pre_visit_summary:
+                  "Chief Complaint: High fever\nSymptoms: Fever 102°F, body aches, fatigue\nDuration: 3 days\nSeverity: Medium\nReason for Visit: Persistent fever requiring medical evaluation",
+                insurance_note:
+                  "HMO plans require a PCP referral before seeing a specialist. Copays are typically $20–50 with referral. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
+              };
+            } else if (msg.includes("back pain")) {
+              data = {
+                intent: "symptom_triage",
+                severity: "medium",
+                urgency: "this_week",
+                specialist_needed: "Orthopedist",
+                should_see_doctor: true,
+                home_care_steps: [
+                  "Apply ice for 20 minutes every 2 hours",
+                  "Take ibuprofen 400mg with food every 6–8 hours",
+                  "Avoid heavy lifting and sudden movements",
+                  "Try gentle stretching for lower back",
+                ],
+                warning_signs: [
+                  "Numbness or tingling down legs",
+                  "Loss of bladder or bowel control",
+                  "Fever accompanying back pain",
+                  "Pain radiating below the knee",
+                ],
+                what_to_tell_doctor: [
+                  "Mention pain has persisted for two weeks",
+                  "Describe what makes it better or worse",
+                  "Tell them about any prior back injuries",
+                  "Mention your daily activity level",
+                ],
+                pre_visit_summary:
+                  "Chief Complaint: Lower back pain\nSymptoms: Persistent lower back pain\nDuration: Two weeks\nSeverity: Medium\nReason for Visit: Ongoing back pain requiring diagnosis",
+                insurance_note:
+                  "With your HDHP plan, you pay the full cost of visits until your annual deductible is met, typically $1,500–4,000. After meeting the deductible, your coinsurance applies. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
+              };
+            } else {
+              data = {
+                intent: "symptom_triage",
+                severity: "low",
+                urgency: "routine",
+                specialist_needed: "Primary Care",
+                should_see_doctor: false,
+                home_care_steps: [
+                  "Rest and drink at least 8 glasses of water daily",
+                  "Use saline nasal spray 2–3 times per day",
+                  "Gargle warm salt water for sore throat relief",
+                  "Take an OTC antihistamine if sneezing is disruptive",
+                ],
+                warning_signs: [
+                  "Fever above 103°F",
+                  "Difficulty breathing or chest tightness",
+                  "Symptoms lasting more than 10 days",
+                  "Severe sinus pain or headache",
+                ],
+                what_to_tell_doctor: [
+                  "Mention symptoms started 2 days ago",
+                  "Describe the severity of the sore throat",
+                  "Tell them about any known allergies",
+                  "Mention if anyone around you is also sick",
+                ],
+                pre_visit_summary:
+                  "Chief Complaint: Cold symptoms\nSymptoms: Runny nose, mild sore throat, sneezing\nDuration: 2 days\nSeverity: Low\nReason for Visit: Mild cold symptoms, routine check if not improving",
+                insurance_note:
+                  "PPO plans typically have PCP copays of $20–45 per visit. No referral needed for self-referred specialist visits. Call the member services number on the back of your insurance card for exact costs and to confirm coverage before your visit.",
+              };
+            }
+
+            return { choices: [{ message: { content: JSON.stringify(data) } }] };
+          }
+        ),
+      },
+    },
   })),
 }));
 
