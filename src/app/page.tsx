@@ -477,11 +477,11 @@ function Dropdown({
   const label = selected?.label ?? placeholder;
 
   return (
-    <div ref={ref} className="relative inline-block">
+    <div ref={ref} className="relative inline-block max-w-full">
       <button
         type="button"
         onClick={handleToggle}
-        className="inline-flex items-center gap-1 text-sm font-semibold text-[#1E40AF] whitespace-nowrap hover:text-blue-800 transition-colors"
+        className="inline-flex items-center gap-1 text-sm font-semibold text-[#1E40AF] whitespace-nowrap hover:text-blue-800 transition-colors min-h-[44px] sm:min-h-0"
       >
         {label}
         <ChevronDown
@@ -497,7 +497,7 @@ function Dropdown({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -6, scale: 0.97 }}
             transition={{ duration: 0.15, ease: "easeOut" }}
-            className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-xl shadow-lg border border-slate-100 py-1 min-w-[180px] max-h-60 overflow-y-auto"
+            className="absolute left-0 top-full mt-1.5 z-50 bg-white rounded-xl shadow-lg border border-slate-100 py-1 min-w-[180px] max-w-[calc(100vw-2rem)] max-h-60 overflow-y-auto"
           >
             {options.map((opt) => (
               <button
@@ -548,7 +548,7 @@ function ProviderCard({ provider: p, rank, now }: { provider: Provider; rank: nu
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: rank * 0.07 }}
-      className={`relative rounded-2xl border p-4 flex gap-4 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-default ${
+      className={`relative rounded-2xl border p-4 flex gap-3 sm:gap-4 hover:-translate-y-0.5 hover:shadow-md transition-all duration-200 cursor-default ${
         isTopMatch
           ? "border-blue-200"
           : p.insurance_match ? "border-blue-200 ring-1 ring-blue-100" : "border-slate-100"
@@ -567,9 +567,9 @@ function ProviderCard({ provider: p, rank, now }: { provider: Provider; rank: nu
       <div className="flex-shrink-0 self-start">
         {p.photo_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={p.photo_url} alt={p.name} className="w-20 h-20 rounded-xl object-cover bg-slate-100" />
+          <img src={p.photo_url} alt={p.name} className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl object-cover bg-slate-100" />
         ) : (
-          <div className="w-20 h-20 rounded-xl flex items-center justify-center bg-slate-100">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl flex items-center justify-center bg-slate-100">
             <Building2 className="w-8 h-8 text-slate-300" />
           </div>
         )}
@@ -733,6 +733,36 @@ function Modal({ title, body, onClose }: { title: string; body: string; onClose:
 
 /* ─── Fade-up wrapper ────────────────────────────────────────────────────── */
 
+function IOFade({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); io.disconnect(); } },
+      { threshold: 0.08 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: visible ? "translateY(0)" : "translateY(20px)",
+        transition: "opacity 0.5s ease-out, transform 0.5s ease-out",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 function FadeUp({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
   return (
     <motion.div
@@ -775,6 +805,7 @@ export default function CareSensePage() {
 
   const resultsRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<unknown>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [cardFocused, setCardFocused] = useState(false);
@@ -791,6 +822,97 @@ export default function CareSensePage() {
     const interval = setInterval(() => setProviderNow(Date.now()), 60_000);
     return () => clearInterval(interval);
   }, [providers]);
+
+  // ── Constellation canvas ───────────────────────────────────────────────────
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const resize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
+    resize();
+    window.addEventListener("resize", resize, { passive: true });
+
+    type Dot = { x: number; y: number; vx: number; vy: number };
+    const dots: Dot[] = Array.from({ length: 80 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+    }));
+
+    let mx = -9999;
+    let my = -9999;
+    const onMouseMove = (e: MouseEvent) => { mx = e.clientX; my = e.clientY; };
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+
+    let rafId = 0;
+    const tick = () => {
+      const { width: w, height: h } = canvas;
+      ctx.clearRect(0, 0, w, h);
+
+      for (const d of dots) {
+        d.x += d.vx;
+        d.y += d.vy;
+        if (d.x <= 0 || d.x >= w) d.vx *= -1;
+        if (d.y <= 0 || d.y >= h) d.vy *= -1;
+      }
+
+      for (let i = 0; i < dots.length; i++) {
+        const a = dots[i];
+        const mdx = a.x - mx;
+        const mdy = a.y - my;
+        const md = Math.sqrt(mdx * mdx + mdy * mdy);
+        if (md < 150) {
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(mx, my);
+          ctx.strokeStyle = `rgba(148,163,184,${(0.6 * (1 - md / 150)).toFixed(3)})`;
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+        for (let j = i + 1; j < dots.length; j++) {
+          const b = dots[j];
+          const dx = a.x - b.x;
+          const dy = a.y - b.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 80) {
+            ctx.beginPath();
+            ctx.moveTo(a.x, a.y);
+            ctx.lineTo(b.x, b.y);
+            ctx.strokeStyle = `rgba(148,163,184,${(0.6 * (1 - dist / 80)).toFixed(3)})`;
+            ctx.lineWidth = 0.6;
+            ctx.stroke();
+          }
+        }
+      }
+
+      ctx.fillStyle = "rgba(148,163,184,0.5)";
+      for (const d of dots) {
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, 2.25, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+    tick();
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", resize);
+      window.removeEventListener("mousemove", onMouseMove);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.style.scrollBehavior = "smooth";
+    return () => { document.documentElement.style.scrollBehavior = ""; };
+  }, []);
 
   // ── Navigation & modal handlers ────────────────────────────────────────────
 
@@ -1112,16 +1234,17 @@ export default function CareSensePage() {
 
   return (
     <div
-      className="min-h-screen bg-[#F8FAFC]"
-      style={{
-        backgroundImage: 'radial-gradient(circle, #CBD5E1 1px, transparent 1px)',
-        backgroundSize: '28px 28px',
-      }}
+      className="min-h-screen bg-[#F8FAFC] overflow-x-hidden"
     >
+      <canvas
+        ref={canvasRef}
+        className="fixed inset-0 pointer-events-none"
+        style={{ zIndex: 0 }}
+      />
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse at 50% 30%, rgba(248,250,252,0.92) 0%, rgba(248,250,252,0.5) 50%, transparent 100%)',
+          background: 'radial-gradient(ellipse at 50% 30%, rgba(248,250,252,0.88) 0%, rgba(248,250,252,0.4) 55%, transparent 100%)',
           zIndex: 0,
         }}
       />
@@ -1205,7 +1328,7 @@ export default function CareSensePage() {
               height: "600px",
               background: "radial-gradient(circle at center, var(--primary) 0%, transparent 60%)",
               filter: "blur(90px)",
-              opacity: 0.14,
+              opacity: 0.196,
               zIndex: 0,
             }}
           />
@@ -1219,26 +1342,26 @@ export default function CareSensePage() {
               height: "560px",
               background: "radial-gradient(circle at center, var(--accent) 0%, transparent 60%)",
               filter: "blur(80px)",
-              opacity: 0.13,
+              opacity: 0.182,
               zIndex: 0,
             }}
           />
-          {/* Glow 3 - upper-left, primary blue */}
+          {/* Glow 3 - bottom-right, warm amber */}
           <div
             className="pointer-events-none absolute rounded-full"
             style={{
-              top: "-150px",
-              left: "-150px",
-              width: "500px",
-              height: "500px",
-              background: "radial-gradient(circle at center, var(--primary) 0%, transparent 60%)",
-              filter: "blur(85px)",
-              opacity: 0.13,
+              bottom: "-180px",
+              right: "-180px",
+              width: "520px",
+              height: "520px",
+              background: "radial-gradient(circle at center, rgba(251,191,36,1) 0%, transparent 60%)",
+              filter: "blur(90px)",
+              opacity: 0.06,
               zIndex: 0,
             }}
           />
           <h1
-            className="text-4xl md:text-5xl leading-tight mb-3"
+            className="text-3xl sm:text-4xl md:text-5xl leading-tight mb-3"
             style={{ fontFamily: "var(--font-fraunces)", fontWeight: 800, color: "#0F172A", position: "relative", zIndex: 1 }}
           >
             Feel better,{" "}
@@ -1286,13 +1409,13 @@ export default function CareSensePage() {
             <div className="bg-white rounded-2xl overflow-hidden">
               <div className="h-1 w-full" style={{ background: "linear-gradient(to right, #1E40AF, #059669)" }} />
 
-              <div className="p-6 space-y-5">
+              <div className="p-4 sm:p-6 space-y-5">
                 {/* Insurance row */}
                 <div>
                   <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
                     Insurance
                   </p>
-                  <div className="flex items-center gap-2 flex-wrap text-sm text-slate-700">
+                  <div className="flex items-center gap-x-2 gap-y-3 flex-wrap text-sm text-slate-700">
                     <span>I have</span>
                     <Dropdown
                       options={INSURANCE_PROVIDERS.map((p) => ({ value: p, label: p }))}
@@ -1516,13 +1639,13 @@ export default function CareSensePage() {
                             onChange={handleManualAddressChange}
                             onKeyDown={handleManualAddressKeyDown}
                             placeholder="City, state or zip code"
-                            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent"
+                            className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent min-h-[44px]"
                           />
                           <button
                             type="button"
                             onClick={handleLocationSearch}
                             disabled={geocodeStatus === "loading" || !manualAddress.trim()}
-                            className="px-4 py-2 rounded-xl text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                            className="px-4 py-2.5 rounded-xl text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 min-h-[44px] min-w-[44px] flex items-center justify-center"
                             style={{ background: "#1E40AF" }}
                           >
                             {geocodeStatus === "loading" ? (
@@ -1951,8 +2074,8 @@ export default function CareSensePage() {
         )}
 
         {/* ── How it works ── */}
-        <FadeUp delay={0.2}>
-          <div id="how-it-works" className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
+        <IOFade>
+          <div id="how-it-works" className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8" style={{ scrollMarginTop: "80px" }}>
             <div className="text-center mb-8">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight mb-2">
                 How CareSense AI Works
@@ -1960,7 +2083,7 @@ export default function CareSensePage() {
               <p className="text-sm text-slate-400">From symptoms to care in 3 simple steps</p>
             </div>
 
-            <div className="grid grid-cols-3 gap-6 mb-8 relative">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8 relative">
               <div className="absolute top-6 left-1/6 right-1/6 h-px bg-gradient-to-r from-blue-200 via-emerald-200 to-blue-200 hidden md:block" />
               {[
                 { icon: Search, step: "1", color: "#1E40AF", bg: "linear-gradient(135deg, #EFF6FF, #DBEAFE)", title: "Describe Your Symptoms", desc: "Tell us how you're feeling. No medical jargon needed." },
@@ -2002,10 +2125,11 @@ export default function CareSensePage() {
               </button>
             </div>
           </div>
-        </FadeUp>
+        </IOFade>
 
         {/* ── Trust section ── */}
-        <div id="features" className="grid grid-cols-3 gap-3">
+        <IOFade>
+        <div id="features" className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={{ scrollMarginTop: "80px" }}>
           {[
             { icon: Shield, color: "#1E40AF", bg: "#EFF6FF", glow: "rgba(30,64,175,0.22)", title: "Private & Secure", desc: "We never store your health information", stat: "HIPAA-aware design" },
             { icon: Zap, color: "#059669", bg: "#ECFDF5", glow: "rgba(5,150,105,0.22)", title: "Instant Guidance", desc: "AI-powered triage in under 30 seconds", stat: "< 10s average" },
@@ -2041,10 +2165,12 @@ export default function CareSensePage() {
             </motion.div>
           ))}
         </div>
+        </IOFade>
 
         {/* ── Footer ── */}
+        <IOFade>
         <footer className="pt-8 pb-4 border-t border-slate-100">
-          <div className="grid grid-cols-3 gap-8 mb-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-3">
                 <div
@@ -2110,6 +2236,7 @@ export default function CareSensePage() {
             <p className="text-xs text-slate-300">© 2026</p>
           </div>
         </footer>
+        </IOFade>
       </main>
     </div>
   );
