@@ -2115,8 +2115,8 @@ export default function CareSensePage() {
           </motion.div>
         )}
 
-        {/* ── How it works ── */}
-        <IOFade>
+        {/* ── How it works + Trust cards (hidden after triage) ── */}
+        {!triage && <IOFade>
           <div id="how-it-works" className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8" style={{ scrollMarginTop: "80px" }}>
             <div className="text-center mb-8">
               <h2 className="text-xl font-bold text-slate-900 tracking-tight mb-2">
@@ -2167,10 +2167,9 @@ export default function CareSensePage() {
               </button>
             </div>
           </div>
-        </IOFade>
+        </IOFade>}
 
-        {/* ── Trust section ── */}
-        <IOFade>
+        {!triage && <IOFade>
         <div id="features" className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={{ scrollMarginTop: "80px" }}>
           {[
             { icon: Shield, color: "#1E40AF", bg: "#EFF6FF", glow: "rgba(30,64,175,0.22)", title: "Private & Secure", desc: "We never store your health information", stat: "HIPAA-aware design" },
@@ -2207,7 +2206,7 @@ export default function CareSensePage() {
             </motion.div>
           ))}
         </div>
-        </IOFade>
+        </IOFade>}
 
         {/* ── Footer ── */}
         <IOFade>
