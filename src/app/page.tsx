@@ -102,7 +102,7 @@ interface Provider {
   phone: string;
   website: string;
   maps_link: string;
-  place_id: string;
+  place_id: string | null;
   open_now: boolean | null;
   photo_url: string | null;
   primary_type: string | null;
@@ -110,6 +110,7 @@ interface Provider {
   today_hours: string | null;
   next_open: string | null;
   top_match: boolean;
+  source?: string;
 }
 
 interface ProvidersResponse {
@@ -2099,12 +2100,20 @@ export default function CareSensePage() {
                     {providers.urgency_banner.message}
                   </div>
                 )}
-                {providers.insurance_note && (
-                  <div className="mb-3 flex gap-2 items-start text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
-                    <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    {providers.insurance_note}
-                  </div>
-                )}
+                {providers.insurance_note && (() => {
+                  const isKaiserVerified = providers.providers.some((p) => p.source === "kaiser");
+                  return isKaiserVerified ? (
+                    <div className="mb-3 flex gap-2 items-start text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
+                      <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-emerald-600" />
+                      ✓ Showing verified Kaiser Permanente in-network facilities only.
+                    </div>
+                  ) : (
+                    <div className="mb-3 flex gap-2 items-start text-sm text-blue-700 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5">
+                      <Shield className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                      {providers.insurance_note}
+                    </div>
+                  );
+                })()}
                 <div className="space-y-3">
                   {providers.providers.map((p, i) => (
                     <ProviderCard key={p.place_id} provider={p} rank={i + 1} now={providerNow} />
