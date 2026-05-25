@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchKaiserProviders, type KaiserProvider } from "../kaiser/route";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY;
 
@@ -255,7 +256,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { specialist_needed, urgency = "routine", location, insurance_provider } = body;
+  const { specialist_needed, urgency = "routine", location, insurance_provider, city, state } = body;
 
   // ── Input validation & sanitization ──────────────────────────────────────
   if (!specialist_needed || typeof specialist_needed !== "string" || !specialist_needed.trim()) {
@@ -283,11 +284,6 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!GOOGLE_API_KEY || GOOGLE_API_KEY === "paste_later") {
-    console.error("[providers] Places API key not configured");
-    return secureJson(GRACEFUL_ERROR);
-  }
-
   const urg: Urgency = (["emergency", "today", "this_week", "routine"] as const).includes(
     urgency as Urgency
   )
@@ -295,6 +291,51 @@ export async function POST(req: NextRequest) {
     : "routine";
 
   const maxResults = urg === "emergency" ? 3 : 5;
+
+  // ── Kaiser direct lookup ─────────────────────────────────────────────────
+  const isKaiser = cleanInsurance.toLowerCase().includes("kaiser");
+  if (isKaiser && typeof city === "string" && city.trim() && typeof state === "string" && state.trim()) {
+    const { providers: kaiserProviders, error: kaiserError } = await fetchKaiserProviders(
+      city.trim(),
+      state.trim()
+    );
+
+    if (!kaiserError && kaiserProviders.length > 0) {
+      return secureJson({
+        providers: kaiserProviders.map((p: KaiserProvider, i: number) => ({
+          name: p.name,
+          address: p.address,
+          phone: p.phone,
+          credentials: p.credentials,
+          source: "kaiser",
+          rating: null,
+          user_ratings_total: null,
+          distance: null,
+          website: "",
+          maps_link: `https://healthy.kaiserpermanente.org/find-a-doctor`,
+          place_id: null,
+          open_now: null,
+          photo_url: null,
+          primary_type: cleanSpecialist,
+          insurance_match: true,
+          today_hours: null,
+          next_open: null,
+          top_match: i === 0,
+        })),
+        urgency_banner: urgencyBanner(urg),
+        insurance_note:
+          "These results come directly from Kaiser Permanente's provider directory. Verify availability by calling the number on your Kaiser member card.",
+      });
+    }
+
+    // Fall through to Google Places if Kaiser returned empty or errored
+    console.warn("[providers] Kaiser lookup failed or empty, falling back to Google Places");
+  }
+
+  if (!GOOGLE_API_KEY || GOOGLE_API_KEY === "paste_later") {
+    console.error("[providers] Places API key not configured");
+    return secureJson(GRACEFUL_ERROR);
+  }
 
   // ── Build search payload ─────────────────────────────────────────────────
   const insurancePrefix = cleanInsurance ? `${cleanInsurance} ` : "";
