@@ -1,35 +1,44 @@
 import { ImageResponse } from "next/og";
+import fs from "fs";
+import path from "path";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 export const alt = "CareSense AI — Feel sick? We've got you.";
-export const size = { width: 1200, height: 630 };
+export const size = { width: 2400, height: 1260 };
 export const contentType = "image/png";
 
-const PAD = 70;
+const PAD = 140;
 
-// Deterministic dots kept to edges for texture — simple divs, Satori-safe
 const DOTS: Array<{ x: number; y: number; r: number; c: string; o: number }> = [
-  { x: 50,   y: 28,  r: 3, c: "30,64,175",  o: 0.30 },
-  { x: 200,  y: 14,  r: 2, c: "56,189,248", o: 0.26 },
-  { x: 380,  y: 36,  r: 4, c: "5,150,105",  o: 0.23 },
-  { x: 560,  y: 18,  r: 2, c: "30,64,175",  o: 0.28 },
-  { x: 740,  y: 40,  r: 3, c: "56,189,248", o: 0.24 },
-  { x: 920,  y: 16,  r: 2, c: "5,150,105",  o: 0.26 },
-  { x: 1100, y: 38,  r: 3, c: "30,64,175",  o: 0.22 },
-  { x: 30,   y: 592, r: 2, c: "5,150,105",  o: 0.28 },
-  { x: 210,  y: 608, r: 4, c: "30,64,175",  o: 0.23 },
-  { x: 430,  y: 584, r: 3, c: "56,189,248", o: 0.26 },
-  { x: 650,  y: 610, r: 2, c: "5,150,105",  o: 0.24 },
-  { x: 870,  y: 580, r: 4, c: "30,64,175",  o: 0.22 },
-  { x: 1080, y: 604, r: 2, c: "56,189,248", o: 0.27 },
-  { x: 16,   y: 200, r: 3, c: "56,189,248", o: 0.26 },
-  { x: 22,   y: 380, r: 2, c: "5,150,105",  o: 0.23 },
-  { x: 1178, y: 170, r: 2, c: "5,150,105",  o: 0.26 },
-  { x: 1184, y: 350, r: 4, c: "30,64,175",  o: 0.22 },
-  { x: 1172, y: 490, r: 3, c: "56,189,248", o: 0.25 },
+  { x: 100,  y: 56,   r: 6,  c: "30,64,175",  o: 0.30 },
+  { x: 400,  y: 28,   r: 4,  c: "56,189,248", o: 0.26 },
+  { x: 760,  y: 72,   r: 8,  c: "5,150,105",  o: 0.23 },
+  { x: 1120, y: 36,   r: 4,  c: "30,64,175",  o: 0.28 },
+  { x: 1480, y: 80,   r: 6,  c: "56,189,248", o: 0.24 },
+  { x: 1840, y: 32,   r: 4,  c: "5,150,105",  o: 0.26 },
+  { x: 2200, y: 76,   r: 6,  c: "30,64,175",  o: 0.22 },
+  { x: 60,   y: 1184, r: 4,  c: "5,150,105",  o: 0.28 },
+  { x: 420,  y: 1216, r: 8,  c: "30,64,175",  o: 0.23 },
+  { x: 860,  y: 1168, r: 6,  c: "56,189,248", o: 0.26 },
+  { x: 1300, y: 1220, r: 4,  c: "5,150,105",  o: 0.24 },
+  { x: 1740, y: 1160, r: 8,  c: "30,64,175",  o: 0.22 },
+  { x: 2160, y: 1208, r: 4,  c: "56,189,248", o: 0.27 },
+  { x: 32,   y: 400,  r: 6,  c: "56,189,248", o: 0.26 },
+  { x: 44,   y: 760,  r: 4,  c: "5,150,105",  o: 0.23 },
+  { x: 28,   y: 1040, r: 8,  c: "30,64,175",  o: 0.24 },
+  { x: 2356, y: 320,  r: 4,  c: "5,150,105",  o: 0.26 },
+  { x: 2368, y: 700,  r: 8,  c: "56,189,248", o: 0.24 },
+  { x: 2344, y: 980,  r: 6,  c: "30,64,175",  o: 0.27 },
 ];
 
 export default function OGImage() {
+  const frauncesBold = fs.readFileSync(
+    path.join(process.cwd(), "public/fonts/Fraunces-Bold.ttf")
+  );
+  const frauncesBoldItalic = fs.readFileSync(
+    path.join(process.cwd(), "public/fonts/Fraunces-BoldItalic.ttf")
+  );
+
   return new ImageResponse(
     (
       <div
@@ -44,7 +53,7 @@ export default function OGImage() {
           overflow: "hidden",
         }}
       >
-        {/* Dot texture — absolutely positioned, won't disturb flex flow */}
+        {/* Dot texture */}
         {DOTS.map((d, i) => (
           <div
             key={i}
@@ -62,47 +71,40 @@ export default function OGImage() {
         ))}
 
         {/* Brand row */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 28 }}>
           <div
             style={{
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              width: 46,
-              height: 46,
-              borderRadius: 11,
+              width: 92,
+              height: 92,
+              borderRadius: 22,
               background: "linear-gradient(135deg, #1E40AF, #059669)",
             }}
           >
-            <div style={{ display: "flex", color: "white", fontSize: 24 }}>♥</div>
+            <div style={{ display: "flex", color: "white", fontSize: 48 }}>♥</div>
           </div>
-          <span
-            style={{
-              fontSize: 34,
-              fontWeight: 600,
-              color: "#1E293B",
-              letterSpacing: "-0.5px",
-            }}
-          >
+          <span style={{ fontSize: 68, fontWeight: 600, color: "#1E293B", letterSpacing: "-1px" }}>
             CareSense AI
           </span>
           <div
             style={{
               display: "flex",
-              fontSize: 13,
+              fontSize: 26,
               fontWeight: 700,
               color: "white",
               background: "#1E40AF",
-              padding: "3px 9px",
-              borderRadius: 5,
-              letterSpacing: "0.8px",
+              padding: "6px 18px",
+              borderRadius: 10,
+              letterSpacing: "1.6px",
             }}
           >
             BETA
           </div>
         </div>
 
-        {/* Focal block — grows to fill remaining space, vertically centered */}
+        {/* Focal block */}
         <div
           style={{
             display: "flex",
@@ -110,30 +112,33 @@ export default function OGImage() {
             alignItems: "flex-start",
             justifyContent: "center",
             flexGrow: 1,
-            gap: 20,
+            gap: 40,
           }}
         >
           {/* Headline */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             <span
               style={{
-                fontSize: 102,
+                fontSize: 204,
                 fontWeight: 800,
+                fontFamily: "Fraunces",
+                fontStyle: "normal",
                 color: "#0F172A",
                 lineHeight: 1.05,
-                letterSpacing: "-3px",
+                letterSpacing: "-6px",
               }}
             >
               Feel sick?
             </span>
             <span
               style={{
-                fontSize: 102,
+                fontSize: 204,
                 fontWeight: 800,
+                fontFamily: "Fraunces",
                 fontStyle: "italic",
                 color: "#059669",
                 lineHeight: 1.05,
-                letterSpacing: "-3px",
+                letterSpacing: "-6px",
               }}
             >
               We&apos;ve got you.
@@ -143,7 +148,7 @@ export default function OGImage() {
           {/* Tagline */}
           <span
             style={{
-              fontSize: 30,
+              fontSize: 60,
               fontWeight: 400,
               color: "#475569",
               lineHeight: 1.4,
@@ -155,12 +160,12 @@ export default function OGImage() {
 
         {/* Bottom row */}
         <div style={{ display: "flex", alignItems: "center" }}>
-          <span style={{ fontSize: 22, color: "#94A3B8" }}>
+          <span style={{ fontSize: 44, color: "#94A3B8" }}>
             Free · No account needed · US only
           </span>
         </div>
 
-        {/* Accent bar — sits flush at the absolute bottom, outside padding */}
+        {/* Accent bar */}
         <div
           style={{
             display: "flex",
@@ -168,12 +173,18 @@ export default function OGImage() {
             bottom: 0,
             left: 0,
             right: 0,
-            height: 6,
+            height: 12,
             background: "linear-gradient(to right, #1E40AF, #059669)",
           }}
         />
       </div>
     ),
-    { ...size }
+    {
+      ...size,
+      fonts: [
+        { name: "Fraunces", data: frauncesBold, weight: 800, style: "normal" },
+        { name: "Fraunces", data: frauncesBoldItalic, weight: 800, style: "italic" },
+      ],
+    }
   );
 }
