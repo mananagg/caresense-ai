@@ -296,8 +296,8 @@ export async function POST(req: NextRequest) {
   const isKaiser = cleanInsurance.toLowerCase().includes("kaiser");
   if (isKaiser && typeof city === "string" && city.trim() && typeof state === "string" && state.trim()) {
     const { providers: kaiserProviders, error: kaiserError } = await fetchKaiserProviders(
-      city.trim(),
-      state.trim()
+      sanitize(city),
+      sanitize(state)
     );
 
     if (!kaiserError && kaiserProviders.length > 0) {
@@ -364,9 +364,7 @@ export async function POST(req: NextRequest) {
   const today = new Date().getDay();
 
   const providers = results.map((place) => {
-    const photoUrl = place.photos?.[0]?.name
-      ? `https://places.googleapis.com/v1/${place.photos[0].name}/media?maxHeightPx=200&maxWidthPx=200&key=${GOOGLE_API_KEY}`
-      : null;
+    const photoUrl = null; // Places photo URLs embed the server API key — don't forward to client
 
     const name = place.displayName?.text ?? "Unknown";
     const distance = place.location

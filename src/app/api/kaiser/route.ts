@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const KAISER_BASE =
-  "https://kpx-service-bus.kp.org/service/hp/mhpo/healthplanproviderv1rc";
+const KAISER_BASE = process.env.KAISER_API_BASE_URL;
 
 const SEC_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -17,6 +16,20 @@ function secureJson(body: unknown, init?: ResponseInit) {
 
 function sanitize(value: string): string {
   return value.replace(/<[^>]*>/g, "").trim();
+}
+
+const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || entry.resetAt <= now) {
+    rateLimitMap.set(ip, { count: 1, resetAt: now + 60_000 });
+    return true;
+  }
+  if (entry.count >= 10) return false;
+  entry.count++;
+  return true;
 }
 
 // ── FHIR types ────────────────────────────────────────────────────────────────
@@ -120,6 +133,11 @@ export async function fetchKaiserProviders(
   city: string,
   state: string
 ): Promise<{ providers: KaiserProvider[]; error?: string }> {
+  if (!KAISER_BASE) {
+    console.error("[kaiser] KAISER_API_BASE_URL not configured");
+    return { providers: [], error: "kaiser_unavailable" };
+  }
+
   const url = new URL(`${KAISER_BASE}/Practitioner`);
   url.searchParams.set("_count", "5");
   url.searchParams.set("address-city", city);
@@ -160,8 +178,8 @@ export async function fetchKaiserProviders(
       .filter((p) => p.name !== "Unknown Provider");
 
     return { providers };
-  } catch (err) {
-    console.error("[kaiser] fetch failed:", err);
+  } catch {
+    console.error("[kaiser] FHIR fetch failed");
     return { providers: [], error: "kaiser_unavailable" };
   }
 }
@@ -169,6 +187,11 @@ export async function fetchKaiserProviders(
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() ?? "unknown";
+  if (!checkRateLimit(ip)) {
+    return secureJson({ error: "Too many requests" }, { status: 429 });
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();

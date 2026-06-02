@@ -1,23 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { DM_Sans, Fraunces } from "next/font/google";
+import { Instrument_Sans, Fraunces } from "next/font/google";
 import "./globals.css";
 
-const dmSans = DM_Sans({
+const instrumentSans = Instrument_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-dm-sans",
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--font-instrument",
 });
 
 const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["700", "800"],
+  weight: ["800"],
   style: ["normal", "italic"],
   variable: "--font-fraunces",
 });
 
 export const metadata: Metadata = {
   title: "CareSense AI - Intelligent Healthcare Guidance",
-  description: "AI-powered healthcare triage and provider finder",
+  description: "Instant health triage and provider finder",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2A6496",
+  themeColor: "#2D6A4F",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -39,7 +40,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${dmSans.variable} ${fraunces.variable} h-full antialiased`}>
+    <html lang="en" className={`${instrumentSans.variable} ${fraunces.variable} h-full antialiased`}>
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
         <meta name="apple-mobile-web-app-capable" content="yes" />

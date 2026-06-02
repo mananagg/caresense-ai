@@ -32,7 +32,7 @@ function checkRateLimit(ip: string): boolean {
 const ALLOWED_TYPES = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
-function extractJson(text: string): Record<string, string | null> {
+function extractJson(text: string): Record<string, unknown> {
   try {
     return JSON.parse(text);
   } catch {
@@ -96,12 +96,16 @@ export async function POST(req: NextRequest) {
             },
             {
               type: "text",
-              text: `This is a health insurance card or document. Extract ONLY:
+              text: `Step 1 — Validate: Is this clearly a health insurance card from a US health insurance provider? It may be a physical card, a photo of one, or a digital version. It is NOT a valid insurance card if it shows a person, a different document type, a screenshot of something else, inappropriate content, or anything unrelated to US health insurance.
+
+If NOT a health insurance card, return exactly: {"is_insurance_card": false}
+
+Step 2 — Extract (only if it IS a health insurance card):
 1. Insurance provider/company name (e.g. "Kaiser Permanente", "Aetna", "UnitedHealthcare", "Cigna", "Humana", "Anthem", "Blue Cross Blue Shield", "Medicaid", "Medicare")
 2. Plan type — must be exactly one of: HMO, PPO, EPO, HDHP, POS (or null if not visible)
 
 Return ONLY a JSON object with no explanation, no markdown:
-{"insurance_provider": "name or null", "plan_type": "HMO|PPO|EPO|HDHP|POS or null"}`,
+{"is_insurance_card": true, "insurance_provider": "name or null", "plan_type": "HMO|PPO|EPO|HDHP|POS or null"}`,
             },
           ],
         },
@@ -112,7 +116,7 @@ Return ONLY a JSON object with no explanation, no markdown:
 
     const content = completion.choices[0]?.message?.content ?? "";
 
-    let extracted: Record<string, string | null>;
+    let extracted: Record<string, unknown>;
     try {
       extracted = extractJson(content);
     } catch {
@@ -122,9 +126,16 @@ Return ONLY a JSON object with no explanation, no markdown:
       );
     }
 
+    if (extracted.is_insurance_card === false) {
+      return secureJson(
+        { error: "Please upload a valid insurance card." },
+        { status: 422 }
+      );
+    }
+
     return secureJson({
-      insurance_provider: extracted.insurance_provider ?? null,
-      plan_type: extracted.plan_type ?? null,
+      insurance_provider: (extracted.insurance_provider as string | null) ?? null,
+      plan_type: (extracted.plan_type as string | null) ?? null,
     });
   } catch {
     console.error("[extract-insurance] document processing failed");

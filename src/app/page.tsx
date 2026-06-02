@@ -160,7 +160,7 @@ const URGENCY_CONFIG = {
   emergency: {
     label: "Go to ER Now",
     badge: "bg-red-600 text-white",
-    dot: "bg-white/80",
+    dot: "bg-white",
     icon: Siren,
     iconColor: "text-white",
     border: "border-red-500",
@@ -180,7 +180,7 @@ const URGENCY_CONFIG = {
     border: "border-orange-300",
     isEmergency: false,
     summaryLabel: "Pre-Visit Summary",
-    summaryCardClass: "bg-white/70 border border-white/80",
+    summaryCardClass: "bg-white border border-slate-100",
     summaryFooter: "Screenshot or copy this to share with your doctor.",
     summaryFooterClass: "text-gray-400",
     pulseBadge: false,
@@ -194,7 +194,7 @@ const URGENCY_CONFIG = {
     border: "border-amber-200",
     isEmergency: false,
     summaryLabel: "Pre-Visit Summary",
-    summaryCardClass: "bg-white/70 border border-white/80",
+    summaryCardClass: "bg-white border border-slate-100",
     summaryFooter: "Screenshot or copy this to share with your doctor.",
     summaryFooterClass: "text-gray-400",
     pulseBadge: false,
@@ -208,7 +208,7 @@ const URGENCY_CONFIG = {
     border: "border-emerald-200",
     isEmergency: false,
     summaryLabel: "Pre-Visit Summary",
-    summaryCardClass: "bg-white/70 border border-white/80",
+    summaryCardClass: "bg-white border border-slate-100",
     summaryFooter: "Screenshot or copy this to share with your doctor.",
     summaryFooterClass: "text-gray-400",
     pulseBadge: false,
@@ -224,7 +224,7 @@ const URGENCY_DEFAULT = {
   border: "border-gray-200",
   isEmergency: false,
   summaryLabel: "Pre-Visit Summary",
-  summaryCardClass: "bg-white/70 border border-white/80",
+  summaryCardClass: "bg-white border border-slate-100",
   summaryFooter: "Screenshot or copy this to share with your doctor.",
   summaryFooterClass: "text-gray-400",
   pulseBadge: false,
@@ -331,7 +331,7 @@ async function fetchTriage(
         return { data: null, error: typeof data.error === "string" ? data.error : "Invalid request.", notHealthRelated: false };
       }
       if (data.error_type === "ai_unavailable") {
-        lastError = data.message ?? "AI is temporarily unavailable.";
+        lastError = data.message ?? "Guidance is temporarily unavailable.";
         continue;
       }
       if (!res.ok || data.error) {
@@ -771,11 +771,12 @@ function IOFade({ children, className = "" }: { children: React.ReactNode; class
   );
 }
 
+
 function FadeUp({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       transition={{ duration: 0.5, delay, ease: [0.22, 1, 0.36, 1] }}
       className={className}
     >
@@ -850,12 +851,14 @@ export default function CareSensePage() {
     resize();
     window.addEventListener("resize", resize, { passive: true });
 
-    type Dot = { x: number; y: number; vx: number; vy: number };
+    const DOT_COLORS = ["30,64,175", "5,150,105", "30,64,175", "5,150,105", "56,189,248"];
+    type Dot = { x: number; y: number; vx: number; vy: number; c: string };
     const dots: Dot[] = Array.from({ length: 80 }, () => ({
       x: Math.random() * canvas.width,
       y: Math.random() * canvas.height,
       vx: (Math.random() - 0.5) * 0.3,
       vy: (Math.random() - 0.5) * 0.3,
+      c: DOT_COLORS[Math.floor(Math.random() * DOT_COLORS.length)],
     }));
 
     let mx = -9999;
@@ -884,7 +887,7 @@ export default function CareSensePage() {
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(mx, my);
-          ctx.strokeStyle = `rgba(148,163,184,${(0.6 * (1 - md / 150)).toFixed(3)})`;
+          ctx.strokeStyle = `rgba(${a.c},${(0.5 * (1 - md / 150)).toFixed(3)})`;
           ctx.lineWidth = 0.8;
           ctx.stroke();
         }
@@ -897,17 +900,17 @@ export default function CareSensePage() {
             ctx.beginPath();
             ctx.moveTo(a.x, a.y);
             ctx.lineTo(b.x, b.y);
-            ctx.strokeStyle = `rgba(148,163,184,${(0.6 * (1 - dist / 80)).toFixed(3)})`;
+            ctx.strokeStyle = `rgba(${a.c},${(0.45 * (1 - dist / 80)).toFixed(3)})`;
             ctx.lineWidth = 0.6;
             ctx.stroke();
           }
         }
       }
 
-      ctx.fillStyle = "rgba(148,163,184,0.65)";
       for (const d of dots) {
         ctx.beginPath();
         ctx.arc(d.x, d.y, 2.25, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${d.c},0.75)`;
         ctx.fill();
       }
 
@@ -1262,6 +1265,7 @@ export default function CareSensePage() {
   return (
     <div
       className="min-h-screen overflow-x-hidden"
+      style={{ background: "linear-gradient(180deg, #F5F8FF 0%, #FFFFFF 40%, #F2FBF6 100%)" }}
     >
       <canvas
         ref={canvasRef}
@@ -1271,7 +1275,7 @@ export default function CareSensePage() {
       <div
         className="fixed inset-0 pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse at 50% 30%, rgba(248,250,252,0.88) 0%, rgba(248,250,252,0.4) 55%, transparent 100%)',
+          background: 'radial-gradient(ellipse at 50% 20%, rgba(255,255,255,0.9) 0%, rgba(248,250,252,0.45) 50%, transparent 88%)',
           zIndex: 0,
         }}
       />
@@ -1332,14 +1336,14 @@ export default function CareSensePage() {
         </div>
       </nav>
 
-      <main className={`max-w-3xl mx-auto px-4 pb-24 space-y-4 ${isEmergency ? "pt-20" : "pt-6"}`} style={{ position: "relative", zIndex: 1 }}>
+      <main className={`max-w-3xl mx-auto px-4 pb-24 space-y-4 ${isEmergency ? "pt-20" : "pt-2"}`} style={{ position: "relative", zIndex: 1 }}>
 
         {/* ── Hero ── */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-          className="text-center pt-2 pb-1"
+          className="text-center pt-0 pb-0"
           style={{
             position: "relative",
           }}
@@ -1354,7 +1358,7 @@ export default function CareSensePage() {
               height: "600px",
               background: "radial-gradient(circle at center, var(--primary) 0%, transparent 60%)",
               filter: "blur(90px)",
-              opacity: 0.196,
+              opacity: 0.20,
               zIndex: 0,
             }}
           />
@@ -1368,7 +1372,7 @@ export default function CareSensePage() {
               height: "560px",
               background: "radial-gradient(circle at center, var(--accent) 0%, transparent 60%)",
               filter: "blur(80px)",
-              opacity: 0.182,
+              opacity: 0.20,
               zIndex: 0,
             }}
           />
@@ -1382,27 +1386,27 @@ export default function CareSensePage() {
               height: "520px",
               background: "radial-gradient(circle at center, rgba(251,191,36,1) 0%, transparent 60%)",
               filter: "blur(90px)",
-              opacity: 0.06,
+              opacity: 0.09,
               zIndex: 0,
             }}
           />
           <h1
-            className="text-3xl sm:text-4xl md:text-5xl leading-tight mb-3"
+            className="text-3xl sm:text-4xl md:text-5xl leading-tight mb-2"
             style={{ fontFamily: "var(--font-fraunces)", fontWeight: 800, color: "#0F172A", position: "relative", zIndex: 1 }}
           >
-            Feel better,{" "}
+            Feel sick?{" "}
             <em style={{ color: "#059669", fontFamily: "var(--font-fraunces)", fontWeight: 800, fontStyle: "italic" }}>
-              faster
+              We&apos;ve got you.
             </em>
           </h1>
           <p
-            className="text-base max-w-md mx-auto leading-relaxed mb-4"
+            className="text-base max-w-md mx-auto leading-relaxed mb-3"
             style={{ color: "#475569", position: "relative", zIndex: 1 }}
           >
-            Describe your symptoms and get instant AI triage guidance - including home care, specialist recommendations, and providers near you.
+            Tell us how you&apos;re feeling and get instant guidance - including home care, specialist recommendations, and providers near you.
           </p>
           <div
-            className="flex items-center justify-center flex-wrap gap-2 mb-1"
+            className="flex items-center justify-center flex-wrap gap-2 mb-2"
             style={{ position: "relative", zIndex: 1 }}
           >
             {[
@@ -1415,6 +1419,25 @@ export default function CareSensePage() {
                 {text}
               </span>
             ))}
+          </div>
+          <p className="text-xs text-slate-400 mb-2" style={{ position: "relative", zIndex: 1 }}>
+            Free · No account needed · US only
+          </p>
+          <div className="flex items-center justify-center gap-2 mb-1" style={{ position: "relative", zIndex: 1 }}>
+            <div className="flex items-baseline gap-1">
+              <span className="text-sm font-bold" style={{ background: "linear-gradient(to right, #1E40AF, #059669)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>$0</span>
+              <span className="text-xs text-slate-400">Cost to use</span>
+            </div>
+            <span className="text-slate-300 text-xs select-none px-1">·</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-sm font-bold" style={{ background: "linear-gradient(to right, #1E40AF, #059669)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>24/7</span>
+              <span className="text-xs text-slate-400">Always available</span>
+            </div>
+            <span className="text-slate-300 text-xs select-none px-1">·</span>
+            <div className="flex items-baseline gap-1">
+              <span className="text-sm font-bold" style={{ background: "linear-gradient(to right, #1E40AF, #059669)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text" }}>&lt;10s</span>
+              <span className="text-xs text-slate-400">Response time</span>
+            </div>
           </div>
         </motion.div>
 
@@ -1432,7 +1455,7 @@ export default function CareSensePage() {
             onFocus={() => setCardFocused(true)}
             onBlur={() => setCardFocused(false)}
           >
-            <div className="rounded-2xl overflow-hidden" style={{ background: "rgba(255,255,255,0.85)", backdropFilter: "blur(10px)" }}>
+            <div className="rounded-2xl overflow-hidden" style={{ background: "#ffffff" }}>
               <div className="h-1 w-full" style={{ background: "linear-gradient(to right, #1E40AF, #059669)" }} />
 
               <div className="p-4 sm:p-6 space-y-5">
@@ -1848,11 +1871,11 @@ export default function CareSensePage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 mb-5">
-                <div className="bg-white/70 rounded-xl p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-xl p-4">
                   <p className="text-xs text-slate-500 mb-1">Specialist Needed</p>
                   <p className="font-semibold text-slate-900 text-sm">{triage.specialist_needed ?? "-"}</p>
                 </div>
-                <div className="bg-white/70 rounded-xl p-4 backdrop-blur-sm">
+                <div className="bg-white rounded-xl p-4">
                   <p className="text-xs text-slate-500 mb-1">Recommendation</p>
                   <p className="font-semibold text-slate-900 text-sm">
                     {(triage.should_see_doctor ?? false) ? "See a doctor" : "Manage at home"}
@@ -1869,7 +1892,7 @@ export default function CareSensePage() {
                       initial={{ opacity: 0, x: -8 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.06 }}
-                      className="flex items-start gap-3 bg-white/60 rounded-xl p-3.5 backdrop-blur-sm"
+                      className="flex items-start gap-3 bg-white rounded-xl p-3.5"
                     >
                       <div className="w-5 h-5 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
                         <Check className="w-3 h-3 text-emerald-600" />
@@ -1895,7 +1918,7 @@ export default function CareSensePage() {
                         opacity: { delay: i * 0.08, duration: 0.25 },
                         x: { delay: i * 0.08 + 0.35, duration: 0.45, type: "tween" },
                       }}
-                      className="flex items-start gap-3 bg-red-50/80 rounded-xl p-3.5 border border-red-100"
+                      className="flex items-start gap-3 bg-red-50 rounded-xl p-3.5 border border-red-100"
                     >
                       <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
                       <p className="text-sm text-red-700">{sign}</p>
@@ -1911,7 +1934,7 @@ export default function CareSensePage() {
                     <ClipboardList className="w-4 h-4 text-slate-600" />
                     <h3 className="text-sm font-semibold text-slate-700">What to Tell Your Doctor</h3>
                   </div>
-                  <div className="bg-white/60 rounded-xl p-4 backdrop-blur-sm space-y-2">
+                  <div className="bg-white rounded-xl p-4 space-y-2">
                     {(triage.what_to_tell_doctor ?? []).map((point, i) => (
                       <div key={i} className="flex items-start gap-2.5 text-sm text-slate-700">
                         <span
@@ -1953,7 +1976,7 @@ export default function CareSensePage() {
                       )}
                     </button>
                   </div>
-                  <div className={`rounded-xl p-4 backdrop-blur-sm ${urgencyConfig.summaryCardClass}`}>
+                  <div className={`rounded-xl p-4 ${urgencyConfig.summaryCardClass}`}>
                     <div className="space-y-2">
                       {parseSummaryLines(triage.pre_visit_summary ?? "").map(({ label, value }, i) => (
                         <div key={i} className="flex gap-3 text-sm">
@@ -1970,7 +1993,7 @@ export default function CareSensePage() {
               )}
 
               {triage.insurance_note && (
-                <div className="flex gap-3 bg-blue-50/80 rounded-xl p-4 border border-blue-100 backdrop-blur-sm">
+                <div className="flex gap-3 bg-blue-50 rounded-xl p-4 border border-blue-100">
                   <Info className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
                   <div>
                     <p className="text-xs font-semibold text-blue-700 mb-0.5">Insurance Guidance</p>
@@ -2123,8 +2146,8 @@ export default function CareSensePage() {
             )}
           </motion.div>
         )}
-
-        {/* ── How it works + Trust cards (hidden after triage) ── */}
+        
+        {/* ── How it works (hidden after triage) ── */}
         {!triage && <IOFade>
           <div id="how-it-works" className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8" style={{ scrollMarginTop: "80px" }}>
             <div className="text-center mb-8">
@@ -2138,7 +2161,7 @@ export default function CareSensePage() {
               <div className="absolute top-6 left-1/6 right-1/6 h-px bg-gradient-to-r from-blue-200 via-emerald-200 to-blue-200 hidden md:block" />
               {[
                 { icon: Search, step: "1", color: "#1E40AF", bg: "linear-gradient(135deg, #EFF6FF, #DBEAFE)", title: "Describe Your Symptoms", desc: "Tell us how you're feeling. No medical jargon needed." },
-                { icon: Zap, step: "2", color: "#059669", bg: "linear-gradient(135deg, #ECFDF5, #D1FAE5)", title: "Get Instant Guidance", desc: "AI triages your symptoms and tells you what to do next." },
+                { icon: Zap, step: "2", color: "#059669", bg: "linear-gradient(135deg, #ECFDF5, #D1FAE5)", title: "Get Instant Guidance", desc: "We triage your symptoms and tell you what to do next." },
                 { icon: MapPin, step: "3", color: "#7C3AED", bg: "linear-gradient(135deg, #F5F3FF, #EDE9FE)", title: "Find Care Near You", desc: "See the right providers nearby for your situation." },
               ].map(({ icon: Icon, step, color, bg, title, desc }, i) => (
                 <motion.div
@@ -2182,7 +2205,7 @@ export default function CareSensePage() {
         <div id="features" className="grid grid-cols-1 sm:grid-cols-3 gap-3" style={{ scrollMarginTop: "80px" }}>
           {[
             { icon: Shield, color: "#1E40AF", bg: "#EFF6FF", glow: "rgba(30,64,175,0.22)", title: "Private & Secure", desc: "We never store your health information", stat: "HIPAA-aware design" },
-            { icon: Zap, color: "#059669", bg: "#ECFDF5", glow: "rgba(5,150,105,0.22)", title: "Instant Guidance", desc: "AI-powered triage in under 30 seconds", stat: "< 10s average" },
+            { icon: Zap, color: "#059669", bg: "#ECFDF5", glow: "rgba(5,150,105,0.22)", title: "Instant Guidance", desc: "Instant triage in under 30 seconds", stat: "< 10s average" },
             { icon: MapPin, color: "#7C3AED", bg: "#F5F3FF", glow: "rgba(124,58,237,0.22)", title: "Real Providers", desc: "Live data from verified healthcare facilities", stat: "Powered by Google" },
           ].map(({ icon: Icon, color, bg, glow, title, desc, stat }, i) => (
             <motion.div
