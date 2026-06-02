@@ -16,14 +16,30 @@ const fraunces = Fraunces({
   variable: "--font-fraunces",
 });
 
+const OG_TITLE = "CareSense AI — Feel sick? We've got you.";
+const OG_DESC = "Tell us how you're feeling and get instant guidance - including home care, specialist recommendations, and providers near you.";
+
 export const metadata: Metadata = {
-  title: "CareSense AI - Intelligent Healthcare Guidance",
-  description: "Instant health triage and provider finder",
+  metadataBase: new URL("https://caresense-ai.vercel.app"),
+  title: OG_TITLE,
+  description: OG_DESC,
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
     title: "CareSense AI",
+  },
+  openGraph: {
+    title: OG_TITLE,
+    description: OG_DESC,
+    url: "https://caresense-ai.vercel.app",
+    siteName: "CareSense AI",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: OG_TITLE,
+    description: OG_DESC,
   },
 };
 
