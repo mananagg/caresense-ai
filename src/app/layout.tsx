@@ -17,7 +17,7 @@ const fraunces = Fraunces({
 });
 
 const DOC_TITLE = "CareSense AI — Feel sick? We've got you.";
-const OG_TITLE = "Instant symptom guidance - home care, when to see a doctor, and providers near you";
+const OG_TITLE = "CareSense - Your Friendly Health Companion";
 const OG_DESC = "Tell us how you're feeling and get instant guidance - including home care, specialist recommendations, and providers near you.";
 
 export const metadata: Metadata = {
