@@ -16,12 +16,13 @@ const fraunces = Fraunces({
   variable: "--font-fraunces",
 });
 
-const OG_TITLE = "CareSense AI — Feel sick? We've got you.";
+const DOC_TITLE = "CareSense AI — Feel sick? We've got you.";
+const OG_TITLE = "Instant symptom guidance - home care, when to see a doctor, and providers near you";
 const OG_DESC = "Tell us how you're feeling and get instant guidance - including home care, specialist recommendations, and providers near you.";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://caresense-ai.vercel.app"),
-  title: OG_TITLE,
+  title: DOC_TITLE,
   description: OG_DESC,
   manifest: "/manifest.json",
   appleWebApp: {
